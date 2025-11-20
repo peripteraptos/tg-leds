@@ -345,23 +345,35 @@
 <div class="grid grid-cols-[1fr_auto] gap-5">
   <div>
     <div class="video-container relative">
-      <video bind:this={videoEl} class="w-full" autoplay muted loop controls>
+      <video
+        bind:this={videoEl}
+        class="w-full z-0 relative"
+        autoplay
+        muted
+        loop
+        controls
+      >
         <!-- fallback default video if you want one -->
-        <source
-          src={videoUrl || "big_buck_bunny_1080p_h264.mov"}
-          type="video/mp4"
-        />
+        <source src={videoUrl} type="video/mp4" />
         Your browser does not support the video tag.
       </video>
 
       <canvas
-        class="absolute inset-0"
+        class="absolute inset-0 z-10"
         bind:this={canvasEl}
         on:click={canvasClick}
         on:pointerdown={canvasPointerDown}
         on:pointermove={canvasPointerMove}
         on:pointerup={canvasPointerUp}
       />
+
+      {#if videoUrl === null}
+        <div
+          class="absolute inset-0 flex items-center justify-center z-20 bg-neutral-300 bg-opacity-50"
+        >
+          <span class="text-gray-500">No video loaded</span>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -369,40 +381,38 @@
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Video</span>
       <input
-        class="border rounded p-1"
+        class="hidden"
         type="file"
         accept="video/*"
         on:change={onVideoFileChange}
       />
+      <div class="border rounded p-1 text-center">Load video</div>
     </label>
 
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Radius: {config.pointRadius}px</span>
       <input type="range" min="1" max="50" bind:value={config.pointRadius} />
     </label>
-
-    <label class="flex flex-col gap-1">
-      <span class="font-semibold">Export Points</span>
-      <button class="border rounded p-1" type="button" on:click={exportPoints}
-        >Export points JSON</button
-      >
-    </label>
-
-    <label class="flex flex-col gap-1">
-      <span class="font-semibold"> Import Points</span>
-      <input
-        class="border rounded p-1"
-        type="file"
-        accept="application/json"
-        on:change={onImportFileChange}
-      />
-    </label>
-
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Reset</span>
       <button class="border rounded p-1" type="button" on:click={resetPoints}
         >Reset points</button
       >
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="font-semibold">Import/Export</span>
+      <button class="border rounded p-1" type="button" on:click={exportPoints}
+        >Export points</button
+      >
+      <label class="flex flex-col gap-1">
+        <input
+          class="hidden"
+          type="file"
+          accept="application/json"
+          on:change={onImportFileChange}
+        />
+        <div class="border rounded p-1 text-center">Import points</div>
+      </label>
     </label>
   </div>
 </div>
