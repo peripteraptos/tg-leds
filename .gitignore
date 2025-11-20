@@ -4,3 +4,4 @@
 __pycache__
 .esphome
 node_modules
+brs/
