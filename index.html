@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Video</title>
+    <style>
+        #video-container {
+            position: relative;
+            display: inline-block;
+        }
+        #video-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        .color-square {
+            width: 30px;
+            height: 30px;
+            display: inline-block;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="video-container">
+        <video id="video" width="640" height="360" autoplay muted loop>
+            <source src="big_buck_bunny_1080p_h264.mov" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <canvas id="video-overlay"></canvas>
+    </div>
+    <div id="color-squares"></div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('video-overlay');
+        const ctx = canvas.getContext('2d');
+        const squaresContainer = document.getElementById('color-squares');
+        let points = [];
+
+        canvas.width = video.clientWidth;
+        canvas.height = video.clientHeight;
+
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            points.push({ x, y });
+
+            const square = document.createElement('div');
+            square.classList.add('color-square');
+            squaresContainer.appendChild(square);
+        });
+
+        function updateColors() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            points.forEach((point, index) => {
+                const imageData = ctx.getImageData(point.x, point.y, 1, 1).data;
+                const rgb = `rgb(${imageData[0]}, ${imageData[1]}, ${imageData[2]})`;
+                squaresContainer.children[index].style.backgroundColor = rgb;
+            });
+
+            if (!video.paused && !video.ended) {
+                requestAnimationFrame(updateColors);
+            }
+        }
+
+        video.addEventListener('play', updateColors);
+    </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+output:
+  - platform: template
+    id: fake_backlight_output
+    type: float
+    write_action:
+      - lambda: |-
+          ESP_LOGD("fake_backlight", "Fake brightness level: %.2f", state);
+
+light:
+  - id: backlight
+    platform: monochromatic
+    output: fake_backlight_output
+    name: Display Backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 1s
+    gamma_correct: 2.8

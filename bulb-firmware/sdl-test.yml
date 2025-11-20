@@ -1,0 +1,9 @@
+esphome:
+  name: sdl
+  friendly_name: sdl
+
+host:
+
+packages:
+  common: !include common.yml
+  device: !include devices/sdl.yml

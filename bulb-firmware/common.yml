@@ -1,0 +1,30 @@
+# wifi:
+#   ssid: !secret wifi_ssid
+#   password: !secret wifi_password
+logger:
+  level: INFO
+
+external_components:
+  - source:
+      type: local
+      path: external_components
+
+sync_sequence_light:
+  id: seq1
+  r_output: r_out
+  g_output: g_out
+  b_output: b_out
+  server_host: "light-sequencer.local"
+  server_port: 9000
+  sync_port: 9001
+# Custom component that drives those outputs
+# custom_component:
+#   - lambda: |-
+#       auto *seq = new SyncSequenceLight();
+#       seq->set_server_host("light-sequencer.local");  // mDNS/DNS name
+#       seq->set_server_port(9000);                     // TCP sequence port
+#       seq->set_sync_port(9001);                       // UDP sync port
+#       seq->set_outputs(id(r_out), id(g_out), id(b_out));
+#       // optionally force a specific ID:
+#       // seq->set_unique_id("my-light-01");
+#       return {seq};
