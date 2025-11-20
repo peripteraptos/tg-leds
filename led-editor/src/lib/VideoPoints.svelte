@@ -382,14 +382,14 @@
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="font-semibold">Export</span>
+      <span class="font-semibold">Export Points</span>
       <button class="border rounded p-1" type="button" on:click={exportPoints}
         >Export points JSON</button
       >
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="font-semibold"> Import</span>
+      <span class="font-semibold"> Import Points</span>
       <input
         class="border rounded p-1"
         type="file"
