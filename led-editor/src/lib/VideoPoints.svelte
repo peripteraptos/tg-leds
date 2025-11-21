@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import FFmpegDemo from "./FFmpegDemo.svelte";
+  import { store } from "./store.svelte";
 
   interface Point {
     id: number;
@@ -20,10 +22,11 @@
   let ctx: CanvasRenderingContext2D | null = null;
 
   let nextId = 1;
-  let videoUrl: string | null = null;
+  let videoUrl: string | null =
+    "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
 
   let config: Config = {
-    pointRadius: 5,
+    pointRadius: 0.01,
     points: [] as Point[],
   };
 
@@ -37,6 +40,9 @@
   let dragOffsetY = 0;
   let hasDragged = false;
   let justDraggedClick = false;
+  let duration = 0;
+  let currentTime = 0;
+  let isPlaying = false;
 
   onMount(() => {
     if (!canvasEl) return;
@@ -78,10 +84,12 @@
     const onPlay = () => {
       cancelAnimationFrame(animationFrameId);
       renderFrame();
+      isPlaying = true;
     };
 
     const onPause = () => {
       cancelAnimationFrame(animationFrameId);
+      isPlaying = false;
     };
 
     videoEl.addEventListener("loadedmetadata", onLoadedMetadata);
@@ -103,6 +111,8 @@
   function renderFrame() {
     if (!ctx || !canvasEl || !videoEl) return;
 
+    currentTime = videoEl.currentTime;
+
     const width = canvasEl.width;
     const height = canvasEl.height;
 
@@ -113,7 +123,11 @@
       const updated: Point[] = [];
 
       for (const p of config.points) {
-        const color = sampleAverageColor(p.x, p.y, config.pointRadius);
+        const color = sampleAverageColor(
+          denormalize(p.x, width),
+          denormalize(p.y, height),
+          denormalize(config.pointRadius, width)
+        );
         updated.push({ ...p, color });
       }
       config.points = updated;
@@ -121,7 +135,13 @@
       // draw circles on top
       for (const p of config.points) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, config.pointRadius, 0, Math.PI * 2);
+        ctx.arc(
+          denormalize(p.x, width),
+          denormalize(p.y, height),
+          denormalize(config.pointRadius, width),
+          0,
+          Math.PI * 2
+        );
         ctx.fillStyle = "rgba(0,255,0,0.2)";
         ctx.strokeStyle = "#00ff00";
         ctx.lineWidth = 2;
@@ -192,9 +212,8 @@
     }
 
     const rect = canvasEl.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-
+    const x = normalize(event.clientX - rect.left, rect.width);
+    const y = normalize(event.clientY - rect.top, rect.height);
     config.points = [
       ...config.points,
       {
@@ -206,6 +225,13 @@
     ];
   }
 
+  function denormalize(value: number, scale: number) {
+    return value * scale;
+  }
+  function normalize(value: number, scale: number) {
+    return value / scale;
+  }
+
   function canvasPointerDown(event: PointerEvent) {
     const rect = canvasEl.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -214,9 +240,12 @@
     let foundIndex: number | null = null;
     for (let i = 0; i < config.points.length; i++) {
       const p = config.points[i];
-      const dx = p.x - x;
-      const dy = p.y - y;
-      if (dx * dx + dy * dy <= config.pointRadius * config.pointRadius) {
+      const dx = denormalize(p.x, rect.width) - x;
+      const dy = denormalize(p.y, rect.height) - y;
+      if (
+        dx * dx + dy * dy <=
+        denormalize(config.pointRadius, rect.width) ** 2
+      ) {
         foundIndex = i;
         break;
       }
@@ -226,8 +255,8 @@
       dragIndex = foundIndex;
       isDragging = true;
       hasDragged = false;
-      dragOffsetX = config.points[foundIndex].x - x;
-      dragOffsetY = config.points[foundIndex].y - y;
+      dragOffsetX = config.points[foundIndex].x - normalize(x, rect.width);
+      dragOffsetY = config.points[foundIndex].y - normalize(y, rect.height);
       canvasEl.setPointerCapture(event.pointerId);
       event.preventDefault();
     }
@@ -237,8 +266,8 @@
     if (!isDragging || dragIndex === null) return;
 
     const rect = canvasEl.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const x = normalize(event.clientX - rect.left, rect.width);
+    const y = normalize(event.clientY - rect.top, rect.height);
 
     const newX = x + dragOffsetX;
     const newY = y + dragOffsetY;
@@ -335,49 +364,82 @@
       }
     }
   }
+
+  function onCanPlay() {
+    if (videoEl) {
+      console.log("video loaded, duration:", videoEl.duration);
+      duration = videoEl.duration;
+    }
+  }
 </script>
 
-<div class="flex gap-4 bg-black p-4">
-  {#each config.points as point (point.id)}
-    <div class="size-12" style={`background-color: ${point.color}`} />
-  {/each}
-</div>
-<div class="grid grid-cols-[1fr_auto] gap-5">
-  <div>
-    <div class="video-container relative">
-      <video
-        bind:this={videoEl}
-        class="w-full z-0 relative"
-        autoplay
-        muted
-        loop
-        controls
-      >
-        <!-- fallback default video if you want one -->
-        <source src={videoUrl} type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
-
-      <canvas
-        class="absolute inset-0 z-10"
-        bind:this={canvasEl}
-        on:click={canvasClick}
-        on:pointerdown={canvasPointerDown}
-        on:pointermove={canvasPointerMove}
-        on:pointerup={canvasPointerUp}
-      />
-
-      {#if videoUrl === null}
-        <div
-          class="absolute inset-0 flex items-center justify-center z-20 bg-neutral-300 bg-opacity-50"
+<div class="grid lg:grid-cols-[3fr_3fr] gap-5">
+  <div class="flex flex-col">
+    <div>
+      <div class="relative">
+        <video
+          bind:this={videoEl}
+          class="w-full z-0 relative"
+          autoplay
+          crossorigin="anonymous"
+          muted
+          loop
+          controls
+          on:canplay={onCanPlay}
         >
-          <span class="text-gray-500">No video loaded</span>
-        </div>
-      {/if}
-    </div>
-  </div>
+          <!-- fallback default video if you want one -->
+          <source src={videoUrl} type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
 
-  <div class="bg-gray-100 p-4 rounded-lg flex flex-col gap-4">
+        <canvas
+          class="absolute inset-0 z-10"
+          bind:this={canvasEl}
+          on:click={canvasClick}
+          on:pointerdown={canvasPointerDown}
+          on:pointermove={canvasPointerMove}
+          on:pointerup={canvasPointerUp}
+        />
+
+        {#if videoUrl === null}
+          <div
+            class="absolute inset-0 flex items-center justify-center z-20 bg-neutral-100"
+          >
+            <span class="text-gray-500">No video loaded</span>
+          </div>
+        {/if}
+      </div>
+    </div>
+    {#if videoEl}<div id="controls" class="flex items-center gap-2 mt-2 grow">
+        {#if !isPlaying}<button
+            class="bg-neutral-700 rounded p-1 w-20"
+            on:click={() => {
+              videoEl.play();
+            }}>Play</button
+          >{:else}
+          <button
+            class="bg-neutral-700 rounded p-1 w-20"
+            on:click={() => {
+              videoEl.pause();
+            }}>Pause</button
+          >{/if}
+        <div class="bg-neutral-700 rounded p-1 w-full flex items-center">
+          <input
+            type="range"
+            class="w-full"
+            value={currentTime}
+            max={duration}
+            on:input={(e) => {
+              const val = Number((e.target as HTMLInputElement).value);
+              videoEl.currentTime = val;
+            }}
+          />
+        </div>
+      </div>{/if}
+  </div>
+  <div
+    class="bg-neutral-800 p-4 rounded-lg flex flex-col gap-4 text-neutral-400 dark"
+  >
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Video</span>
       <input
@@ -390,8 +452,16 @@
     </label>
 
     <label class="flex flex-col gap-1">
-      <span class="font-semibold">Radius: {config.pointRadius}px</span>
-      <input type="range" min="1" max="50" bind:value={config.pointRadius} />
+      <span class="font-semibold"
+        >Radius: {(config.pointRadius * 100).toFixed(1)} % width</span
+      >
+      <input
+        type="range"
+        min="0.001"
+        max="0.1"
+        step="0.001"
+        bind:value={config.pointRadius}
+      />
     </label>
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Reset</span>
@@ -413,6 +483,21 @@
         />
         <div class="border rounded p-1 text-center">Import points</div>
       </label>
+      <FFmpegDemo
+        videoURL={videoUrl}
+        points={config.points}
+        radius={config.pointRadius}
+      />
     </label>
   </div>
+  <p>{store.message}</p>
+</div>
+
+<div class="flex gap-6 bg-black py-10 justify-around px-10 grow items-center">
+  {#each config.points as point (point.id)}
+    <div
+      class="grow rounded-full aspect-square max-h-62 max-w-62"
+      style={`background-color: ${point.color}`}
+    ></div>
+  {/each}
 </div>
