@@ -6,4 +6,32 @@ host:
 
 packages:
   common: !include common.yml
-  device: !include devices/sdl.yml
+
+output:
+  - platform: template
+    id: red_out
+    type: float
+    write_action:
+      - lambda: |-
+          // ESP_LOGD("FakeLight", "Fake red level: %.2f", state);
+  - platform: template
+    id: green_out
+    type: float
+    write_action:
+      - lambda: |-
+          // ESP_LOGD("FakeLight", "Fake green level: %.2f", state);
+  - platform: template
+    id: blue_out
+    type: float
+    write_action:
+      - lambda: |-
+          // ESP_LOGD("FakeLight", "Fake blue level: %.2f", state);
+
+# light:
+#   - id: main_light
+#     platform: rgb
+#     name: "SDL Test Light"
+#     red: red_out
+#     green: green_out
+#     blue: blue_out
+#     default_transition_length: 0.1s

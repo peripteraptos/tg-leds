@@ -4,6 +4,30 @@ esphome:
   platform: ESP32
   board: esp32dev
 
+# Example RGB outputs (PWM)
+output:
+  - platform: ledc
+    id: r_out
+    pin: 25
+  - platform: ledc
+    id: g_out
+    pin: 26
+  - platform: ledc
+    id: b_out
+    pin: 27
+
+light:
+  - platform: rgb
+    id: main_light
+    name: "LEDVANCE Light"
+    red: r_out
+    green: g_out
+    blue: b_out
+    default_transition_length: 0.1s
+
 packages:
   common: !include common.yaml
-  device: !include devices/ledvance.yml
+#
+# wifi:
+#   ssid: !secret wifi_ssid
+#   password: !secret wifi_password
