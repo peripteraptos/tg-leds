@@ -487,6 +487,7 @@
           bind:this={videoEl}
           class="w-full z-10 relative {tools[currentTool].cursor}"
           autoplay
+          disablePictureInPicture
           crossorigin="anonymous"
           muted
           loop
