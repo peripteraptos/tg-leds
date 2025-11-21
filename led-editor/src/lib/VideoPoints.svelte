@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   //   import FFmpegDemo from "./FFmpegDemo.svelte";
   import { store } from "./store.svelte";
+  import { on } from "svelte/events";
 
   interface Point {
     id: number;
@@ -287,8 +288,10 @@
     if (!isDragging || dragIndex === null) return;
 
     const rect = canvasEl.getBoundingClientRect();
-    const x = normalize(event.clientX - rect.left, rect.width);
-    const y = normalize(event.clientY - rect.top, rect.height);
+    let x = normalize(event.clientX - rect.left, rect.width);
+    let y = normalize(event.clientY - rect.top, rect.height);
+    x = Math.max(0, Math.min(1, x));
+    y = Math.max(0, Math.min(1, y));
 
     const newX = x + dragOffsetX;
     const newY = y + dragOffsetY;
@@ -302,12 +305,24 @@
 
   function canvasPointerUp(event: PointerEvent) {
     if (isDragging) {
+      config.points = config.points.map((p) => ({
+        ...p,
+        x: Math.max(0, Math.min(1, p.x)),
+        y: Math.max(0, Math.min(1, p.y)),
+      }));
       isDragging = false;
       dragIndex = null;
       videoEl.releasePointerCapture(event.pointerId);
       if (hasDragged) {
         justDraggedClick = true; // suppress the subsequent click
       }
+    }
+  }
+
+  function canvasMouseLeave(event: MouseEvent) {
+    if (isDragging) {
+      isDragging = false;
+      dragIndex = null;
     }
   }
 
@@ -410,6 +425,7 @@
           on:pointermove={canvasPointerMove}
           on:pointerup={canvasPointerUp}
           on:canplay={onCanPlay}
+          on:mouseleave={canvasMouseLeave}
         >
           <!-- fallback default video if you want one -->
           <source src={videoUrl} type="video/mp4" />
