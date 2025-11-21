@@ -118,13 +118,10 @@
     };
 
     const onPlay = () => {
-      cancelAnimationFrame(animationFrameId);
-      renderFrame();
       isPlaying = true;
     };
 
     const onPause = () => {
-      cancelAnimationFrame(animationFrameId);
       isPlaying = false;
     };
 
@@ -132,12 +129,13 @@
     videoEl?.addEventListener("play", onPlay);
     videoEl?.addEventListener("pause", onPause);
 
+    animationFrameId = requestAnimationFrame(renderFrame);
+
     return () => {
       window.removeEventListener("resize", handleResize);
       videoEl?.removeEventListener("loadedmetadata", onLoadedMetadata);
       videoEl?.removeEventListener("play", onPlay);
       videoEl?.removeEventListener("pause", onPause);
-      cancelAnimationFrame(animationFrameId);
     };
   });
 
@@ -188,9 +186,7 @@
       }
     }
 
-    if (!videoEl.paused && !videoEl.ended) {
-      animationFrameId = requestAnimationFrame(renderFrame);
-    }
+    animationFrameId = requestAnimationFrame(renderFrame);
   }
 
   // BONUS: average pixels inside a circle of radius pointRadius
