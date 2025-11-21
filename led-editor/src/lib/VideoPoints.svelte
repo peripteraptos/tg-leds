@@ -328,8 +328,8 @@
 
   // --- buttons: reset / export / import ---
 
-  function resetPoints() {
-    config.points = structuredClone(defaultConfig.points);
+  function resetConfig() {
+    config = structuredClone(defaultConfig);
     localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -510,7 +510,7 @@
     </label>
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Reset</span>
-      <button class="border rounded p-1" type="button" on:click={resetPoints}
+      <button class="border rounded p-1" type="button" on:click={resetConfig}
         >Reset points</button
       >
     </label>
