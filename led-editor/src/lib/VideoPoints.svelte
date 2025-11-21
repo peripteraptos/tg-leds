@@ -415,7 +415,7 @@
       <div class="relative">
         <video
           bind:this={videoEl}
-          class="w-full z-20 relative"
+          class="w-full z-10 relative"
           autoplay
           crossorigin="anonymous"
           muted
