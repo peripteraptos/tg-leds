@@ -24,17 +24,17 @@ export default defineConfig({
     tailwindcss(),
     // viteSingleFile(),
     viteServerConfig,
-    viteStaticCopy({
-      targets: [
-        {
-          src: "node_modules/@ffmpeg/core-mt/dist/esm/*",
-          dest: "wasm-files",
-        },
-      ],
-    }),
+    // viteStaticCopy({
+    //   targets: [
+    //     {
+    //       src: "node_modules/@ffmpeg/core-mt/dist/esm/*",
+    //       dest: "wasm-files",
+    //     },
+    //   ],
+    // }),
   ],
   optimizeDeps: {
-    exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/core", "@ffmpeg/core-mt"],
+    // exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/core", "@ffmpeg/core-mt"],
   },
   server: {
     headers: {

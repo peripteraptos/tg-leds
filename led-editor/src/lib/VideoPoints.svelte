@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import FFmpegDemo from "./FFmpegDemo.svelte";
+  //   import FFmpegDemo from "./FFmpegDemo.svelte";
   import { store } from "./store.svelte";
 
   interface Point {
@@ -25,10 +25,29 @@
   let videoUrl: string | null =
     "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
 
-  let config: Config = {
-    pointRadius: 0.01,
-    points: [] as Point[],
+  let defaultConfig: Config = {
+    pointRadius: 0.05,
+    points: [
+      { id: 1, x: 0.05875, y: 0.07333333333333333, color: "rgb(97, 109, 59)" },
+      { id: 2, x: 0.12625, y: 0.14666666666666667, color: "rgb(147, 140, 88)" },
+      { id: 3, x: 0.2075, y: 0.21777777777777776, color: "rgb(86, 117, 135)" },
+      { id: 4, x: 0.27375, y: 0.27555555555555555, color: "rgb(70, 114, 139)" },
+      { id: 5, x: 0.3275, y: 0.3377777777777778, color: "rgb(13, 30, 29)" },
+      { id: 6, x: 0.41, y: 0.4266666666666667, color: "rgb(5, 8, 18)" },
+      { id: 7, x: 0.48625, y: 0.4866666666666667, color: "rgb(15, 26, 32)" },
+      { id: 8, x: 0.545, y: 0.5377777777777778, color: "rgb(27, 36, 42)" },
+      { id: 9, x: 0.61375, y: 0.6066666666666667, color: "rgb(14, 26, 33)" },
+      { id: 10, x: 0.7125, y: 0.6933333333333334, color: "rgb(6, 13, 16)" },
+      { id: 11, x: 0.795, y: 0.7711111111111111, color: "rgb(255, 255, 121)" },
+      { id: 12, x: 0.8575, y: 0.8488888888888889, color: "rgb(235, 222, 85)" },
+    ] as Point[],
   };
+  for (const p of defaultConfig.points) {
+    p.x = (p.id - 1) * (1 / defaultConfig.points.length) + 0.05;
+    p.y = (p.id - 1) * (1 / defaultConfig.points.length) + 0.05;
+  }
+
+  let config = structuredClone(defaultConfig);
 
   let animationFrameId = 0;
 
@@ -293,7 +312,7 @@
   // --- buttons: reset / export / import ---
 
   function resetPoints() {
-    config.points = [];
+    config.points = structuredClone(defaultConfig.points);
     localStorage.removeItem(STORAGE_KEY);
   }
 
@@ -483,11 +502,11 @@
         />
         <div class="border rounded p-1 text-center">Import points</div>
       </label>
-      <FFmpegDemo
+      <!-- <FFmpegDemo
         videoURL={videoUrl}
         points={config.points}
         radius={config.pointRadius}
-      />
+      /> -->
     </label>
   </div>
   <p>{store.message}</p>
