@@ -2,6 +2,7 @@ packages:
   - led-editor
   - brightsign
   - brs
+  - sveltekit-app
 
 publicHoistPattern:
   - "vue"
