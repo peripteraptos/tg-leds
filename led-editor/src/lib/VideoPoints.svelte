@@ -15,7 +15,7 @@
     points: Point[];
   }
 
-  const STORAGE_KEY = "videoPoints";
+  const STORAGE_KEY = "videoPointsConfig";
 
   let videoEl: HTMLVideoElement;
   let canvasEl: HTMLCanvasElement;
