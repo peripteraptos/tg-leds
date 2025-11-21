@@ -2,10 +2,9 @@
   import { onMount } from "svelte";
   //   import FFmpegDemo from "./FFmpegDemo.svelte";
   import { store } from "./store.svelte";
-  import { on } from "svelte/events";
+  import Button from "./Button.svelte";
 
   interface Point {
-    id: number;
     x: number;
     y: number;
     color: string;
@@ -16,53 +15,72 @@
     points: Point[];
   }
 
+  const tools = {
+    pointer: {
+      label: "Move Points",
+      cursor: "",
+      pointCursor: "cursor-grabbing",
+    },
+    add: {
+      label: "Add Points",
+      cursor: "cursor-crosshair",
+      pointCursor: "cursor-crosshair",
+    },
+    remove: {
+      label: "Remove Points",
+      cursor: "",
+      pointCursor: "cursor-not-allowed",
+    },
+  };
+
+  let currentTool = $state<keyof typeof tools>("pointer");
+
   const STORAGE_KEY = "videoPointsConfig";
 
-  let videoEl: HTMLVideoElement;
-  let canvasEl: HTMLCanvasElement;
+  let videoEl = $state<HTMLVideoElement>();
+  let canvasEl = $state<HTMLCanvasElement>();
   let ctx: CanvasRenderingContext2D | null = null;
 
-  let nextId = 1;
-  let videoUrl: string | null =
-    "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+  let videoUrl = $state<string | null>(
+    "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+  );
 
   let defaultConfig: Config = {
     pointRadius: 0.05,
     points: [
-      { id: 1, x: 0.05875, y: 0.07333333333333333, color: "rgb(97, 109, 59)" },
-      { id: 2, x: 0.12625, y: 0.14666666666666667, color: "rgb(147, 140, 88)" },
-      { id: 3, x: 0.2075, y: 0.21777777777777776, color: "rgb(86, 117, 135)" },
-      { id: 4, x: 0.27375, y: 0.27555555555555555, color: "rgb(70, 114, 139)" },
-      { id: 5, x: 0.3275, y: 0.3377777777777778, color: "rgb(13, 30, 29)" },
-      { id: 6, x: 0.41, y: 0.4266666666666667, color: "rgb(5, 8, 18)" },
-      { id: 7, x: 0.48625, y: 0.4866666666666667, color: "rgb(15, 26, 32)" },
-      { id: 8, x: 0.545, y: 0.5377777777777778, color: "rgb(27, 36, 42)" },
-      { id: 9, x: 0.61375, y: 0.6066666666666667, color: "rgb(14, 26, 33)" },
-      { id: 10, x: 0.7125, y: 0.6933333333333334, color: "rgb(6, 13, 16)" },
-      { id: 11, x: 0.795, y: 0.7711111111111111, color: "rgb(255, 255, 121)" },
-      { id: 12, x: 0.8575, y: 0.8488888888888889, color: "rgb(235, 222, 85)" },
+      { x: 0.05875, y: 0.07333333333333333, color: "rgb(97, 109, 59)" },
+      { x: 0.12625, y: 0.14666666666666667, color: "rgb(147, 140, 88)" },
+      { x: 0.2075, y: 0.21777777777777776, color: "rgb(86, 117, 135)" },
+      { x: 0.27375, y: 0.27555555555555555, color: "rgb(70, 114, 139)" },
+      { x: 0.3275, y: 0.3377777777777778, color: "rgb(13, 30, 29)" },
+      { x: 0.41, y: 0.4266666666666667, color: "rgb(5, 8, 18)" },
+      { x: 0.48625, y: 0.4866666666666667, color: "rgb(15, 26, 32)" },
+      { x: 0.545, y: 0.5377777777777778, color: "rgb(27, 36, 42)" },
+      { x: 0.61375, y: 0.6066666666666667, color: "rgb(14, 26, 33)" },
+      { x: 0.7125, y: 0.6933333333333334, color: "rgb(6, 13, 16)" },
+      { x: 0.795, y: 0.7711111111111111, color: "rgb(255, 255, 121)" },
+      { x: 0.8575, y: 0.8488888888888889, color: "rgb(235, 222, 85)" },
     ] as Point[],
   };
-  for (const p of defaultConfig.points) {
-    p.x = (p.id - 1) * (1 / defaultConfig.points.length) + 0.05;
-    p.y = (p.id - 1) * (1 / defaultConfig.points.length) + 0.05;
+  for (const [index, p] of defaultConfig.points.entries()) {
+    p.x = index * (1 / defaultConfig.points.length) + 0.05;
+    p.y = index * (1 / defaultConfig.points.length) + 0.05;
   }
 
-  let config = structuredClone(defaultConfig);
+  let config = $state(structuredClone(defaultConfig));
 
   let animationFrameId = 0;
 
-  let loaded = false;
+  let loaded = $state(false);
   // dragging state
-  let isDragging = false;
+  let isDragging = $state(false);
   let dragIndex: number | null = null;
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
-  let hasDragged = false;
-  let justDraggedClick = false;
-  let duration = 0;
-  let currentTime = 0;
-  let isPlaying = false;
+  let dragOffsetX = $state(0);
+  let dragOffsetY = $state(0);
+  let hasDragged = $state(false);
+  let duration = $state(0);
+  let currentTime = $state(0);
+  let isPlaying = $state(false);
 
   onMount(() => {
     if (!canvasEl) return;
@@ -74,13 +92,11 @@
       if (stored) {
         const parsed = JSON.parse(stored) as Config;
         config = parsed;
-        config.points = parsed.points.map((p, idx) => ({
-          id: p.id ?? idx + 1,
+        config.points = parsed.points.map((p) => ({
           x: p.x,
           y: p.y,
           color: "rgb(255,255,255)",
         }));
-        nextId = config.points.reduce((max, p) => Math.max(max, p.id), 0) + 1;
       }
       loaded = true;
     } catch (e) {
@@ -112,21 +128,23 @@
       isPlaying = false;
     };
 
-    videoEl.addEventListener("loadedmetadata", onLoadedMetadata);
-    videoEl.addEventListener("play", onPlay);
-    videoEl.addEventListener("pause", onPause);
+    videoEl?.addEventListener("loadedmetadata", onLoadedMetadata);
+    videoEl?.addEventListener("play", onPlay);
+    videoEl?.addEventListener("pause", onPause);
 
     return () => {
       window.removeEventListener("resize", handleResize);
-      videoEl.removeEventListener("loadedmetadata", onLoadedMetadata);
-      videoEl.removeEventListener("play", onPlay);
-      videoEl.removeEventListener("pause", onPause);
+      videoEl?.removeEventListener("loadedmetadata", onLoadedMetadata);
+      videoEl?.removeEventListener("play", onPlay);
+      videoEl?.removeEventListener("pause", onPause);
       cancelAnimationFrame(animationFrameId);
     };
   });
 
   //   persist points whenever they change
-  $: loaded && localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  $effect(() => {
+    loaded && localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  });
 
   function renderFrame() {
     if (!ctx || !canvasEl || !videoEl) return;
@@ -227,19 +245,30 @@
   function canvasClick(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
-    // prevent "click" after drag from creating a new point
-    if (justDraggedClick) {
-      justDraggedClick = false;
-      return;
-    }
 
-    const rect = canvasEl.getBoundingClientRect();
+    // prevent "click" after drag from creating a new point
+
+    switch (currentTool) {
+      case "pointer":
+        return; // do nothing
+      case "add":
+        addPointAtEvent(event);
+        break;
+      case "remove":
+        return;
+        // removePointAtEvent(event);
+        break;
+    }
+  }
+
+  function addPointAtEvent(event: MouseEvent) {
+    const rect = canvasEl?.getBoundingClientRect();
+    if (!rect) return;
     const x = normalize(event.clientX - rect.left, rect.width);
     const y = normalize(event.clientY - rect.top, rect.height);
     config.points = [
       ...config.points,
       {
-        id: nextId++,
         x,
         y,
         color: "rgb(0,0,0)",
@@ -254,10 +283,42 @@
     return value / scale;
   }
 
-  function canvasPointerDown(event: PointerEvent) {
-    const rect = canvasEl.getBoundingClientRect();
+  function pointPointerDown(event: PointerEvent) {
+    event.stopPropagation();
+    if (currentTool === "add") return;
+    // console.log("point pointer down");
+    const target = event.currentTarget as HTMLElement;
+    const index = Number(target.textContent) - 1;
+
+    if (index === -1) return;
+
+    if (currentTool === "remove") {
+      config.points.splice(index, 1);
+      return;
+    }
+
+    dragIndex = index;
+    isDragging = true;
+    hasDragged = false;
+    const rect = canvasEl?.getBoundingClientRect();
+    if (!rect) return;
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    dragOffsetX = config.points[index].x - normalize(x, rect.width);
+    dragOffsetY = config.points[index].y - normalize(y, rect.height);
+
+    videoEl?.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function canvasPointerDown(event: PointerEvent) {
+    // console.log("pointer down", event);
+    const rect = canvasEl?.getBoundingClientRect();
+    if (!rect) return;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    if (currentTool !== "pointer") return;
 
     let foundIndex: number | null = null;
     for (let i = 0; i < config.points.length; i++) {
@@ -272,14 +333,13 @@
         break;
       }
     }
-
     if (foundIndex !== null) {
       dragIndex = foundIndex;
       isDragging = true;
       hasDragged = false;
       dragOffsetX = config.points[foundIndex].x - normalize(x, rect.width);
       dragOffsetY = config.points[foundIndex].y - normalize(y, rect.height);
-      videoEl.setPointerCapture(event.pointerId);
+      videoEl?.setPointerCapture(event.pointerId);
       event.preventDefault();
     }
   }
@@ -287,7 +347,8 @@
   function canvasPointerMove(event: PointerEvent) {
     if (!isDragging || dragIndex === null) return;
 
-    const rect = canvasEl.getBoundingClientRect();
+    const rect = canvasEl?.getBoundingClientRect();
+    if (!rect) return;
     let x = normalize(event.clientX - rect.left, rect.width);
     let y = normalize(event.clientY - rect.top, rect.height);
     x = Math.max(0, Math.min(1, x));
@@ -298,6 +359,7 @@
 
     hasDragged = true;
 
+    // console.log("dragging to", dragIndex, newX, newY);
     config.points = config.points.map((p, i) =>
       i === dragIndex ? { ...p, x: newX, y: newY } : p
     );
@@ -312,10 +374,7 @@
       }));
       isDragging = false;
       dragIndex = null;
-      videoEl.releasePointerCapture(event.pointerId);
-      if (hasDragged) {
-        justDraggedClick = true; // suppress the subsequent click
-      }
+      videoEl?.releasePointerCapture(event.pointerId);
     }
   }
 
@@ -361,13 +420,11 @@
           x: number;
           y: number;
         }[];
-        config.points = parsed.map((p, idx) => ({
-          id: p.id ?? idx + 1,
+        config.points = parsed.map((p) => ({
           x: p.x,
           y: p.y,
           color: "rgb(0,0,0)",
         }));
-        nextId = config.points.reduce((max, p) => Math.max(max, p.id), 0) + 1;
       } catch (err) {
         console.error("Failed to import points JSON", err);
         alert("Failed to import points JSON.");
@@ -412,20 +469,33 @@
 <div class="grid lg:grid-cols-[3fr_3fr] gap-5">
   <div class="flex flex-col">
     <div>
-      <div class="relative">
+      <label class="flex items-center gap-2 mb-2">
+        <span class="font-semibold">Tool:</span>
+        <select
+          bind:value={currentTool}
+          class="bg-neutral-700 text-neutral-300 p-1 rounded"
+        >
+          {#each Object.entries(tools) as [key, tool]}
+            <option value={key}>{tool.label}</option>
+          {/each}
+        </select>
+      </label>
+    </div>
+    <div>
+      <div class="relative overflow-clip">
         <video
           bind:this={videoEl}
-          class="w-full z-10 relative"
+          class="w-full z-10 relative {tools[currentTool].cursor}"
           autoplay
           crossorigin="anonymous"
           muted
           loop
-          on:click={canvasClick}
-          on:pointerdown={canvasPointerDown}
-          on:pointermove={canvasPointerMove}
-          on:pointerup={canvasPointerUp}
-          on:canplay={onCanPlay}
-          on:mouseleave={canvasMouseLeave}
+          oncanplay={onCanPlay}
+          onclick={canvasClick}
+          onpointerdown={canvasPointerDown}
+          onpointermove={canvasPointerMove}
+          onpointerup={canvasPointerUp}
+          onmouseleave={canvasMouseLeave}
         >
           <!-- fallback default video if you want one -->
           <source src={videoUrl} type="video/mp4" />
@@ -437,12 +507,15 @@
           bind:this={canvasEl}
         ></canvas>
 
-        {#each config.points as point (point.id)}
+        {#each config.points as point, key}
           <div
-            class="absolute z-20 bg-blue-500/60 text-white font-mono px-1 pointer-events-none select-none size-10 rounded-full flex items-center justify-center"
+            onpointerdown={pointPointerDown}
+            class="absolute z-20 bg-blue-500/60 text-white font-mono px-1 select-none size-10 rounded-full flex items-center justify-center {tools[
+              currentTool
+            ].pointCursor}"
             style={`left: ${point.x * 100}%; top: ${point.y * 100}%; transform: translate(-50%, -50%) scale(${config.pointRadius * 40});`}
           >
-            {point.id}
+            {key + 1}
           </div>
         {/each}
 
@@ -456,17 +529,17 @@
       </div>
     </div>
     {#if videoEl}<div id="controls" class="flex items-center gap-2 mt-2 grow">
-        {#if !isPlaying}<button
-            class="bg-neutral-700 rounded p-1 w-20"
-            on:click={() => {
-              videoEl.play();
-            }}>Play</button
+        {#if !isPlaying}<Button
+            class="w-20"
+            onclick={() => {
+              videoEl?.play();
+            }}>Play</Button
           >{:else}
-          <button
-            class="bg-neutral-700 rounded p-1 w-20"
-            on:click={() => {
-              videoEl.pause();
-            }}>Pause</button
+          <Button
+            class="w-20"
+            onclick={() => {
+              videoEl?.pause();
+            }}>Pause</Button
           >{/if}
         <div class="bg-neutral-700 rounded p-1 w-full flex items-center">
           <input
@@ -474,9 +547,11 @@
             class="w-full"
             value={currentTime}
             max={duration}
-            on:input={(e) => {
+            oninput={(e) => {
               const val = Number((e.target as HTMLInputElement).value);
-              videoEl.currentTime = val;
+              if (videoEl) {
+                videoEl.currentTime = val;
+              }
             }}
           />
         </div>
@@ -491,9 +566,9 @@
         class="hidden"
         type="file"
         accept="video/*"
-        on:change={onVideoFileChange}
+        onchange={onVideoFileChange}
       />
-      <div class="border rounded p-1 text-center">Load video</div>
+      <Button as="div">Load video</Button>
     </label>
 
     <label class="flex flex-col gap-1">
@@ -510,36 +585,32 @@
     </label>
     <label class="flex flex-col gap-1">
       <span class="font-semibold">Reset</span>
-      <button class="border rounded p-1" type="button" on:click={resetConfig}
-        >Reset points</button
-      >
+      <Button onclick={resetConfig}>Reset config</Button>
     </label>
-    <label class="flex flex-col gap-1">
+    <div class="flex flex-col gap-2">
       <span class="font-semibold">Import/Export</span>
-      <button class="border rounded p-1" type="button" on:click={exportPoints}
-        >Export points</button
-      >
+      <Button onclick={exportPoints}>Export points</Button>
       <label class="flex flex-col gap-1">
         <input
           class="hidden"
           type="file"
           accept="application/json"
-          on:change={onImportFileChange}
+          onchange={onImportFileChange}
         />
-        <div class="border rounded p-1 text-center">Import points</div>
+        <Button as="div">Import points</Button>
       </label>
       <!-- <FFmpegDemo
         videoURL={videoUrl}
         points={config.points}
         radius={config.pointRadius}
       /> -->
-    </label>
+    </div>
   </div>
   <p>{store.message}</p>
 </div>
 
 <div class="flex gap-6 bg-black py-10 justify-around px-10 grow items-center">
-  {#each config.points as point (point.id)}
+  {#each config.points as point, key}
     <div
       class="grow rounded-full aspect-square max-h-62 max-w-62"
       style={`background-color: ${point.color}`}
