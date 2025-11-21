@@ -224,6 +224,8 @@
   // --- canvas interactions ---
 
   function canvasClick(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
     // prevent "click" after drag from creating a new point
     if (justDraggedClick) {
       justDraggedClick = false;
@@ -276,7 +278,7 @@
       hasDragged = false;
       dragOffsetX = config.points[foundIndex].x - normalize(x, rect.width);
       dragOffsetY = config.points[foundIndex].y - normalize(y, rect.height);
-      canvasEl.setPointerCapture(event.pointerId);
+      videoEl.setPointerCapture(event.pointerId);
       event.preventDefault();
     }
   }
@@ -302,7 +304,7 @@
     if (isDragging) {
       isDragging = false;
       dragIndex = null;
-      canvasEl.releasePointerCapture(event.pointerId);
+      videoEl.releasePointerCapture(event.pointerId);
       if (hasDragged) {
         justDraggedClick = true; // suppress the subsequent click
       }
@@ -398,12 +400,15 @@
       <div class="relative">
         <video
           bind:this={videoEl}
-          class="w-full z-0 relative"
+          class="w-full z-20 relative"
           autoplay
           crossorigin="anonymous"
           muted
           loop
-          controls
+          on:click={canvasClick}
+          on:pointerdown={canvasPointerDown}
+          on:pointermove={canvasPointerMove}
+          on:pointerup={canvasPointerUp}
           on:canplay={onCanPlay}
         >
           <!-- fallback default video if you want one -->
@@ -412,13 +417,18 @@
         </video>
 
         <canvas
-          class="absolute inset-0 z-10"
+          class="absolute inset-0 -z-10 pointer-events-none"
           bind:this={canvasEl}
-          on:click={canvasClick}
-          on:pointerdown={canvasPointerDown}
-          on:pointermove={canvasPointerMove}
-          on:pointerup={canvasPointerUp}
-        />
+        ></canvas>
+
+        {#each config.points as point (point.id)}
+          <div
+            class="absolute z-20 bg-blue-500/60 text-white font-mono px-1 pointer-events-none select-none size-10 rounded-full flex items-center justify-center"
+            style={`left: ${point.x * 100}%; top: ${point.y * 100}%; transform: translate(-50%, -50%) scale(${config.pointRadius * 40});`}
+          >
+            {point.id}
+          </div>
+        {/each}
 
         {#if videoUrl === null}
           <div
