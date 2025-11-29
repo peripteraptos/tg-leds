@@ -66,7 +66,7 @@ function loadSequenceFromCsv(filePath) {
             continue;
         }
 
-        const pointIndex = parseInt(parts[0]); // not used currently
+        const pointIndex = parts[0]; // not used currently
         const tMs = parseFloat(parts[1]);
         const rRaw = parseFloat(parts[2]);
         const gRaw = parseFloat(parts[3]);
@@ -193,22 +193,70 @@ const server = net.createServer((socket) => {
         socket.write(line + "\n");
     }
 
-    function sendSequence(lightId) {
-        writeLine(`SEQLEN ${TOTAL_LENGTH_S.toFixed(3)}`);
-        for (const sample of SEQUENCE.filter(s => s.pointIndex == lightId)) {
-            // sample.t is already in seconds
-            const t = sample.t.toFixed(3);
-            const r = sample.r.toFixed(3);
-            const g = sample.g.toFixed(3);
-            const b = sample.b.toFixed(3);
-            writeLine(`SAMPLE ${t} ${r} ${g} ${b}`);
+    function simplifySequenceForLight(sequence, lightId, {
+        colorEps = 0.01,   // ~2–3/255
+        maxGapS = 0.2      // don't interpolate over more than 200ms without a point
+    } = {}) {
+        const samples = sequence
+            .filter(s => s.pointIndex === lightId)
+            .sort((a, b) => a.t - b.t);
+
+        if (samples.length <= 2) return samples;
+
+        const simplified = [];
+        let last = samples[0];
+        simplified.push(last);
+
+        for (let i = 1; i < samples.length - 1; i++) {
+            const s = samples[i];
+
+            const dr = Math.abs(s.r - last.r);
+            const dg = Math.abs(s.g - last.g);
+            const db = Math.abs(s.b - last.b);
+            const diff = Math.max(dr, dg, db);
+
+            const dt = s.t - last.t;
+
+            if (diff >= colorEps || dt >= maxGapS) {
+                simplified.push(s);
+                last = s;
+            }
         }
+
+        // always keep the last sample
+        simplified.push(samples[samples.length - 1]);
+
+        return simplified;
+    }
+
+
+    async function sendSequence(lightId) {
+        writeLine(`SEQLEN ${TOTAL_LENGTH_S.toFixed(3)}`);
+        const samples = simplifySequenceForLight(SEQUENCE, lightId, {
+            colorEps: 0.01,
+            maxGapS: 0.2,
+        });
+        for (const sample of samples) {
+            // sample.t in seconds → ms int
+            const t_ms = Math.round(sample.t * 1000);
+
+            // sample.r/g/b in 0..1 → 0..255 int
+            const r = Math.round(sample.r * 255);
+            const g = Math.round(sample.g * 255);
+            const b = Math.round(sample.b * 255);
+
+            writeLine(`SAMPLE ${t_ms} ${r} ${g} ${b}`);
+            await new Promise(resolve => setTimeout(resolve, 1));
+        }
+
         writeLine("SEQEND");
     }
 
     function sendSync() {
         const t = getCurrentSequenceTime();
-        writeLine(`SYNC ${t.toFixed(3)}`);
+        const syncTimeMs = Math.round(t * 1000);
+        writeLine(`SYNC ${syncTimeMs}`);
+
     }
 });
 

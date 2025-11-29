@@ -8,13 +8,17 @@ network:
 socket:
 
 logger:
-  level: DEBUG
+  level: INFO
 
+# light_sync:
+#   id: light_sync0
+#   server_host: 192.168.188.22
+#   server_port: 4242
+#   client_id: 1
+#   r_out: red_out
+#   g_out: green_out
+#   b_out: blue_out
 light_sync:
-  id: light_sync0
-  server_host: "localhost"
-  server_port: 4242
-  client_id: 1
-  r_out: red_out
-  g_out: green_out
-  b_out: blue_out
+  id: ls
+  host: 192.168.188.22
+  port: 4242

@@ -23,10 +23,10 @@ const PORT = 4242;
 const TOTAL_LENGTH_S = 10; // 10 second loop
 
 // Number of samples we send in SEQUENCE
-const NUM_SAMPLES = 1000;
+const NUM_SAMPLES = 100;
 
 // How often to send SYNC (ms)
-const SYNC_INTERVAL_MS = 1000;
+const SYNC_INTERVAL_MS = 4000;
 
 // --- Sequence generation ---------------------------------------------------
 
@@ -71,13 +71,13 @@ const server = net.createServer((socket) => {
     let syncTimer = null;
 
     // Handle incoming data (line-based)
-    socket.on('data', (chunk) => {
+    socket.on('data', async (chunk) => {
         buf += chunk;
         let idx;
         while ((idx = buf.indexOf('\n')) !== -1) {
             const line = buf.slice(0, idx);
             buf = buf.slice(idx + 1);
-            handleLine(line.trim());
+            await handleLine(line.trim());
         }
     });
 
@@ -91,7 +91,7 @@ const server = net.createServer((socket) => {
         if (syncTimer) clearInterval(syncTimer);
     });
 
-    function handleLine(line) {
+    async function handleLine(line) {
         if (!line) return;
         console.log('<=', line);
 
@@ -100,7 +100,7 @@ const server = net.createServer((socket) => {
             console.log('Client says HELLO, id =', lightId);
 
             // Send sequence once
-            sendSequence();
+            await sendSequence();
 
             // Start periodic SYNCs
             if (!syncTimer) {
@@ -118,15 +118,17 @@ const server = net.createServer((socket) => {
         socket.write(line + '\n');
     }
 
-    function sendSequence() {
+    async function sendSequence() {
         writeLine(`SEQLEN ${TOTAL_LENGTH_S.toFixed(3)}`);
         for (const sample of SEQUENCE) {
+
             // ensure limited decimals to keep lines short
             const t = sample.t.toFixed(3);
             const r = sample.r.toFixed(3);
             const g = sample.g.toFixed(3);
             const b = sample.b.toFixed(3);
             writeLine(`SAMPLE ${t} ${r} ${g} ${b}`);
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
         writeLine('SEQEND');
     }

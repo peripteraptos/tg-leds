@@ -1,46 +1,60 @@
-from esphome import config_validation as cv, codegen as cg
-from esphome.const import CONF_ID
-from esphome.components import output
+import esphome.codegen as cg
+import esphome.config_validation as cv
 
-DEPENDENCIES = ["network"]  # important for host + wifi/ethernet
+from esphome.components.light.effects import register_rgb_effect
+from esphome.components.light.types import LightEffect
+from esphome.const import (
+    CONF_ID,
+    CONF_PORT,
+    CONF_NAME,
+)
 
-CONF_R_OUTPUT = "r_out"
-CONF_G_OUTPUT = "g_out"
-CONF_B_OUTPUT = "b_out"
-
-CONF_SERVER_HOST = "server_host"
-CONF_SERVER_PORT = "server_port"
-CONF_CLIENT_ID = "client_id"
-
+AUTO_LOAD = ["socket"]
+DEPENDENCIES = ["network"]
 
 light_sync_ns = cg.esphome_ns.namespace("light_sync")
-LightSync = light_sync_ns.class_("LightSync", cg.Component)
+LightSyncComponent = light_sync_ns.class_("LightSyncComponent", cg.Component)
+LightSyncEffect = light_sync_ns.class_("LightSyncEffect", LightEffect)
 
+CONF_HOST = "host"
+CONF_CLIENT_ID = "client_id"
+CONF_LIGHT_SYNC_ID = "light_sync_id"
+
+# ----- Component schema -----
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(): cv.declare_id(LightSync),
-
-        cv.Required(CONF_R_OUTPUT): cv.use_id(output.FloatOutput),
-        cv.Required(CONF_G_OUTPUT): cv.use_id(output.FloatOutput),
-        cv.Required(CONF_B_OUTPUT): cv.use_id(output.FloatOutput),
-
-        cv.Required(CONF_SERVER_HOST): cv.string,  # hostname or IP
-        cv.Optional(CONF_SERVER_PORT, default=4242): cv.port,
-        cv.Required(CONF_CLIENT_ID): cv.string,
+        cv.GenerateID(): cv.declare_id(LightSyncComponent),
+        cv.Required(CONF_HOST): cv.string,
+        cv.Required(CONF_PORT): cv.port,
+        cv.Optional(CONF_CLIENT_ID): cv.string,
     }
-).extend(cv.COMPONENT_SCHEMA)
+)
 
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+    cg.add(var.set_server_host(config[CONF_HOST]))
+    cg.add(var.set_server_port(config[CONF_PORT]))
 
-    # Outputs
-    r_out = await cg.get_variable(config[CONF_R_OUTPUT])
-    g_out = await cg.get_variable(config[CONF_G_OUTPUT])
-    b_out = await cg.get_variable(config[CONF_B_OUTPUT])
-    cg.add(var.set_outputs(r_out, g_out, b_out))
+    if CONF_CLIENT_ID in config:
+        cg.add(var.set_client_id(config[CONF_CLIENT_ID]))
+    else:
+        # default client id: node name
+        cg.add(var.set_client_id(cg.RawExpression("App.get_name()")))
 
-    cg.add(var.set_server_host(config[CONF_SERVER_HOST]))
-    cg.add(var.set_server_port(config[CONF_SERVER_PORT]))
-    cg.add(var.set_client_id(config[CONF_CLIENT_ID]))
+
+# ----- Effect schema & registration -----
+@register_rgb_effect(
+    "light_sync",            # YAML key under effects
+    LightSyncEffect,
+    "Light Sync",            # Default effect name in UI
+    {
+        cv.GenerateID(CONF_LIGHT_SYNC_ID): cv.use_id(LightSyncComponent),
+    },
+)
+async def light_sync_effect_to_code(config, effect_id):
+    parent = await cg.get_variable(config[CONF_LIGHT_SYNC_ID])
+    var = cg.new_Pvariable(effect_id, config[CONF_NAME])
+    cg.add(var.set_light_sync(parent))
+    return var
