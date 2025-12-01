@@ -6,3 +6,5 @@ __pycache__
 node_modules
 brs/
 ffmpeg.wasm/
+concert-esphome
+convert-esphome
