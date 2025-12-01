@@ -10,7 +10,7 @@ from esphome.const import (
 )
 
 AUTO_LOAD = ["socket"]
-DEPENDENCIES = ["network"]
+DEPENDENCIES = ["network", "light"]
 
 light_sync_ns = cg.esphome_ns.namespace("light_sync")
 LightSyncComponent = light_sync_ns.class_("LightSyncComponent", cg.Component)

@@ -3,9 +3,10 @@
 #include "esphome/core/defines.h"
 
 #ifdef USE_NETWORK
+#ifdef USE_LIGHT
 
-#include "esphome/components/light/light_effect.h"
 #include "light_sync.h"
+#include "esphome/components/light/light_effect.h"
 
 namespace esphome
 {
@@ -37,3 +38,4 @@ namespace esphome
 } // namespace esphome
 
 #endif // USE_NETWORK
+#endif // USE_LIGHT

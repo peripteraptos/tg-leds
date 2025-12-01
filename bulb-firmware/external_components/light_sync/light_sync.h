@@ -5,6 +5,7 @@
 #ifdef USE_NETWORK
 
 #include "esphome/core/component.h"
+#include "esphome/core/hal.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/network/util.h"
 

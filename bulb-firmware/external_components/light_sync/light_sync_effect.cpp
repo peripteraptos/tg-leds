@@ -1,6 +1,7 @@
 #include "light_sync_effect.h"
 
 #ifdef USE_NETWORK
+#ifdef USE_LIGHT
 
 #include "esphome/core/log.h"
 #include "esphome/components/light/light_state.h"
@@ -48,9 +49,13 @@ namespace esphome
             call.set_transition_length(0);
             call.set_rgb(r / 255.0, g / 255.0, b / 255.0);
             call.perform();
+
+            ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
+                     (int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(r * 255), (int)(g * 255), (int)(b * 255));
         }
 
     } // namespace light_sync
 } // namespace esphome
 
 #endif // USE_NETWORK
+#endif // USE_LIGHT
