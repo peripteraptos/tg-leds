@@ -22,3 +22,6 @@ light_sync:
   id: ls
   host: 192.168.188.22
   port: 4242
+
+brightsign_sync:
+  id: brightsign_sync_1

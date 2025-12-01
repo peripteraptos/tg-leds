@@ -1,11 +1,25 @@
 esphome:
-  name: sdl
+  name: led-1
   friendly_name: sdl
+  on_boot:
+    then:
+      - output.set_level:
+          id: blue_out
+          level: 0.1%
+      - output.set_level:
+          id: blue_out
+          level: 0%
+      - light.turn_on:
+          id: main_light
+          effect: "Sync from Server"
 
 host:
 
 packages:
   common: !include common.yml
+
+logger:
+  level: DEBUG
 
 output:
   - platform: template
@@ -27,6 +41,21 @@ output:
       - lambda: |-
           // ESP_LOGD("FakeLight", "Fake blue level: %.2f", state);
 
+light:
+  - platform: rgb
+    id: main_light
+    name: "Virtual Light"
+    red: red_out
+    green: green_out
+    blue: blue_out
+    default_transition_length: 0.1s
+    effects:
+      - random:
+      - pulse:
+      - strobe:
+      - light_sync:
+          name: "Sync from Server"
+          light_sync_id: ls
 # light:
 #   - id: main_light
 #     platform: rgb
