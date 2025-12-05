@@ -3,13 +3,19 @@ external_components:
       type: local
       path: external_components
 
-network:
+# socket:
 
-socket:
+# udp:
+#   # listen_address: "224.0.0.250" # mDNS group
+#   port: 1539
+#   on_receive:
+#     then:
+#       - logger.log:
+#           format: "Received %s"
+#           args: [format_hex_pretty(data).c_str()]
 
 logger:
   level: INFO
-
 # light_sync:
 #   id: light_sync0
 #   server_host: 192.168.188.22
@@ -18,10 +24,11 @@ logger:
 #   r_out: red_out
 #   g_out: green_out
 #   b_out: blue_out
-light_sync:
-  id: ls
-  host: 192.168.188.22
-  port: 4242
 
 brightsign_sync:
-  id: brightsign_sync_1
+  id: bsync
+light_sync:
+  id: ls
+  host: 192.168.188.23
+  port: 1234
+  brightsign_sync_id: bsync

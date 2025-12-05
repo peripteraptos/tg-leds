@@ -1,5 +1,10 @@
 esphome:
   name: led-${device_number}
+  platformio_options:
+    build_flags:
+      #   - -D LWIP_LOOPIF_MULTICAST=1
+      - -D LWIP_IGMP=1
+
   on_boot:
     then:
       - output.set_level:
@@ -14,6 +19,9 @@ esphome:
 
 bk72xx:
   board: generic-bk7231t-qfn32-tuya
+  framework:
+    version: dev
+    # loglevel: verbose
 
 ota:
   - platform: esphome
@@ -29,8 +37,8 @@ wifi:
   # fast_connect: True
   #  reboot_timeout: "5min"
 
-web_server:
-  port: 80
+# web_server:
+#   port: 80
 
 packages:
   common: !include ./common.yml
@@ -41,18 +49,22 @@ output:
     id: red_out
     pin: P7
     frequency: 500 Hz
+    max_power: 90%
   - platform: libretiny_pwm
     id: green_out
     pin: P8
     frequency: 500 Hz
+    max_power: 100%
   - platform: libretiny_pwm
     id: blue_out
     pin: P9
     frequency: 500 Hz
+    max_power: 50%
   - platform: libretiny_pwm
     id: white_out
     pin: P24
     frequency: 500 Hz
+    max_power: 0%
 
 light:
   - platform: rgb

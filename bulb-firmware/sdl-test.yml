@@ -1,6 +1,7 @@
 esphome:
-  name: led-1
+  name: led-10
   friendly_name: sdl
+
   on_boot:
     then:
       - output.set_level:
@@ -14,12 +15,13 @@ esphome:
           effect: "Sync from Server"
 
 host:
+network:
 
 packages:
   common: !include common.yml
 
 logger:
-  level: DEBUG
+  level: VERY_VERBOSE
 
 output:
   - platform: template
@@ -56,11 +58,3 @@ light:
       - light_sync:
           name: "Sync from Server"
           light_sync_id: ls
-# light:
-#   - id: main_light
-#     platform: rgb
-#     name: "SDL Test Light"
-#     red: red_out
-#     green: green_out
-#     blue: blue_out
-#     default_transition_length: 0.1s
