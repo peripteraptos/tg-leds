@@ -4,10 +4,16 @@
   import { store } from "./store.svelte";
   import Button from "./Button.svelte";
 
+  interface Color {
+    r: number;
+    g: number;
+    b: number;
+  }
+
   interface Point {
     x: number;
     y: number;
-    color: string;
+    color: Color;
   }
 
   interface Config {
@@ -48,18 +54,18 @@
   let defaultConfig: Config = {
     pointRadius: 0.05,
     points: [
-      { x: 0.05875, y: 0.07333333333333333, color: "rgb(97, 109, 59)" },
-      { x: 0.12625, y: 0.14666666666666667, color: "rgb(147, 140, 88)" },
-      { x: 0.2075, y: 0.21777777777777776, color: "rgb(86, 117, 135)" },
-      { x: 0.27375, y: 0.27555555555555555, color: "rgb(70, 114, 139)" },
-      { x: 0.3275, y: 0.3377777777777778, color: "rgb(13, 30, 29)" },
-      { x: 0.41, y: 0.4266666666666667, color: "rgb(5, 8, 18)" },
-      { x: 0.48625, y: 0.4866666666666667, color: "rgb(15, 26, 32)" },
-      { x: 0.545, y: 0.5377777777777778, color: "rgb(27, 36, 42)" },
-      { x: 0.61375, y: 0.6066666666666667, color: "rgb(14, 26, 33)" },
-      { x: 0.7125, y: 0.6933333333333334, color: "rgb(6, 13, 16)" },
-      { x: 0.795, y: 0.7711111111111111, color: "rgb(255, 255, 121)" },
-      { x: 0.8575, y: 0.8488888888888889, color: "rgb(235, 222, 85)" },
+      { x: 0.05875, y: 0.07333333333333333, color: { r: 97, g: 109, b: 59 } },
+      { x: 0.12625, y: 0.14666666666666667, color: { r: 147, g: 140, b: 88 } },
+      { x: 0.2075, y: 0.21777777777777776, color: { r: 86, g: 117, b: 135 } },
+      { x: 0.27375, y: 0.27555555555555555, color: { r: 70, g: 114, b: 139 } },
+      { x: 0.3275, y: 0.3377777777777778, color: { r: 13, g: 30, b: 29 } },
+      { x: 0.41, y: 0.4266666666666667, color: { r: 5, g: 8, b: 18 } },
+      { x: 0.48625, y: 0.4866666666666667, color: { r: 15, g: 26, b: 32 } },
+      { x: 0.545, y: 0.5377777777777778, color: { r: 27, g: 36, b: 42 } },
+      { x: 0.61375, y: 0.6066666666666667, color: { r: 14, g: 26, b: 33 } },
+      { x: 0.7125, y: 0.6933333333333334, color: { r: 6, g: 13, b: 16 } },
+      { x: 0.795, y: 0.7711111111111111, color: { r: 255, g: 255, b: 121 } },
+      { x: 0.8575, y: 0.8488888888888889, color: { r: 235, g: 222, b: 85 } },
     ] as Point[],
   };
   for (const [index, p] of defaultConfig.points.entries()) {
@@ -81,6 +87,8 @@
   let duration = $state(0);
   let currentTime = $state(0);
   let isPlaying = $state(false);
+  let isCapturing = $state(false);
+  let captureData: Record<string, ({ time: number } & Color)[]> = $state({});
 
   onMount(() => {
     if (!canvasEl) return;
@@ -91,11 +99,12 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as Config;
+        console.log("Loaded stored points", parsed);
         config = parsed;
         config.points = parsed.points.map((p) => ({
           x: p.x,
           y: p.y,
-          color: "rgb(255,255,255)",
+          color: { r: 255, g: 255, b: 255 },
         }));
       }
       loaded = true;
@@ -158,18 +167,70 @@
     if (config.points.length) {
       const updated: Point[] = [];
 
-      for (const p of config.points) {
+      for (const [index, p] of config.points.entries()) {
         const color = sampleAverageColor(
           denormalize(p.x, width),
           denormalize(p.y, height),
           denormalize(config.pointRadius, width)
         );
-        updated.push({ ...p, color });
+        updated.push({
+          ...p,
+          color,
+        });
+        if (isCapturing) {
+          const lightName = "led-" + (index + 1);
+
+          // store color data
+          if (!captureData[lightName]) {
+            captureData[lightName] = [];
+          }
+          // console.log(
+          //   `Capture point ${index} at time ${videoEl.currentTime.toFixed(
+          //     2
+          //   )}: rgb(${p.color.r}, ${p.color.g}, ${p.color.b})`
+          // );
+          if (
+            captureData[lightName].find(
+              (d) => d.time === Math.round(videoEl!.currentTime * 1000)
+            )
+          ) {
+            // already have data for this time
+            console.log(
+              `Skipping duplicate sample for ${lightName} at time ${Math.round(
+                videoEl.currentTime * 1000
+              )} ms`
+            );
+            continue;
+          }
+
+          if (captureData[lightName] && captureData[lightName].length > 0) {
+            const lastEntry =
+              captureData[lightName][captureData[lightName].length - 1];
+            if (
+              lastEntry &&
+              lastEntry.r == color.r &&
+              lastEntry.g == color.g &&
+              lastEntry.b == color.b
+            ) {
+              // skip samples that are too close in time
+              // console.log(
+              //   `Skipping similar sample for ${lightName} at time ${Math.round(
+              //     videoEl.currentTime * 1000
+              //   )} ms`
+              // );
+              continue;
+            }
+          }
+          captureData[lightName].push({
+            time: Math.round(videoEl.currentTime * 1000),
+            ...color,
+          });
+        }
       }
       config.points = updated;
 
       // draw circles on top
-      for (const p of config.points) {
+      for (const [, p] of config.points.entries()) {
         ctx.beginPath();
         ctx.arc(
           denormalize(p.x, width),
@@ -189,9 +250,87 @@
     animationFrameId = requestAnimationFrame(renderFrame);
   }
 
-  // BONUS: average pixels inside a circle of radius pointRadius
-  function sampleAverageColor(x: number, y: number, radius: number): string {
-    if (!ctx || !canvasEl) return "rgb(0,0,0)";
+  // playback video from beginning to end at high speed and capture colors
+  async function playbackAndCapture() {
+    if (!videoEl) return;
+    videoEl.currentTime = 0;
+    videoEl.playbackRate = 20.0;
+    videoEl.loop = false;
+    captureData = {};
+    return await new Promise<void>((resolve, reject) => {
+      videoEl?.pause();
+
+      videoEl?.addEventListener(
+        "seeked",
+        () => {
+          setTimeout(() => {
+            videoEl?.addEventListener(
+              "ended",
+              () => {
+                resolve();
+                isCapturing = false;
+                if (videoEl) {
+                  videoEl.playbackRate = 1.0;
+                  videoEl.loop = true;
+                }
+              },
+              { once: true }
+            );
+
+            videoEl?.play().then(() => {
+              isCapturing = true;
+              console.log("Video playback started for capture");
+            });
+          }, 100);
+        },
+        { once: true }
+      );
+    });
+
+    videoEl!.currentTime = 0;
+  }
+
+  // download captured data as JSON
+  function downloadCaptureData() {
+    const processed = Object.fromEntries(
+      Object.entries(captureData).map(([key, samples]) => {
+        // sort samples by time
+        const sorted = samples.slice().sort((a, b) => a.time - b.time);
+        const mapped = sorted.map((s, index, arr) => {
+          // transform to delta time
+          if (index === 0) {
+            return s;
+          } else {
+            return {
+              ...s,
+              time: s.time - arr[index - 1].time,
+            };
+          }
+        });
+        const filtered = mapped.filter((s, index, arr) => {
+          // remove samples without changes
+          if (index === 0) return true;
+          const prev = arr[index - 1];
+          return s.r !== prev.r || s.g !== prev.g || s.b !== prev.b;
+        });
+        return [key, filtered];
+      })
+    );
+    const dataStr = JSON.stringify(processed, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "samples.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // BONUS: average pixels inside a circle of radius pintRadius
+  function sampleAverageColor(x: number, y: number, radius: number): Color {
+    if (!ctx || !canvasEl) return { r: 0, g: 0, b: 0 };
 
     const r = Math.max(1, Math.round(radius));
     const startX = Math.max(0, Math.floor(x - r));
@@ -226,14 +365,18 @@
 
     if (count === 0) {
       const p = ctx.getImageData(x, y, 1, 1).data;
-      return `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
+      return {
+        r: p[0],
+        g: p[1],
+        b: p[2],
+      };
     }
 
     const avgR = Math.round(sumR / count);
     const avgG = Math.round(sumG / count);
     const avgB = Math.round(sumB / count);
 
-    return `rgb(${avgR}, ${avgG}, ${avgB})`;
+    return { r: avgR, g: avgG, b: avgB };
   }
 
   // --- canvas interactions ---
@@ -267,7 +410,7 @@
       {
         x,
         y,
-        color: "rgb(0,0,0)",
+        color: { r: 0, g: 0, b: 0 },
       },
     ];
   }
@@ -412,14 +555,16 @@
       try {
         const text = String(e.target?.result);
         const parsed = JSON.parse(text) as {
-          id?: number;
-          x: number;
-          y: number;
-        }[];
-        config.points = parsed.map((p) => ({
+          points: {
+            id?: number;
+            x: number;
+            y: number;
+          }[];
+        };
+        config.points = parsed.points.map((p) => ({
           x: p.x,
           y: p.y,
-          color: "rgb(0,0,0)",
+          color: { r: 0, g: 0, b: 0 },
         }));
       } catch (err) {
         console.error("Failed to import points JSON", err);
@@ -602,15 +747,31 @@
         radius={config.pointRadius}
       /> -->
     </div>
+    <div class="flex flex-col gap-2">
+      <span class="font-semibold">Capture Colors</span>
+      <Button
+        onclick={async () => {
+          await playbackAndCapture();
+          console.log("Capture data:", captureData);
+        }}
+      >
+        {isCapturing ? "Capturing..." : "Start Capture"}
+      </Button>
+      {#if captureData}
+        <Button onclick={downloadCaptureData}>Download Captured Data</Button>
+      {/if}
+    </div>
   </div>
   <p>{store.message}</p>
 </div>
 
-<div class="flex gap-6 bg-black py-10 justify-around px-10 grow items-center">
-  {#each config.points as point, key}
-    <div
-      class="grow rounded-full aspect-square max-h-62 max-w-62"
-      style={`background-color: ${point.color}`}
-    ></div>
-  {/each}
-</div>
+{#if !isCapturing}
+  <div class="flex gap-6 bg-black py-10 justify-around px-10 grow items-center">
+    {#each config.points as point, key}
+      <div
+        class="grow rounded-full aspect-square max-h-62 max-w-62"
+        style={`background-color: rgb(${point.color.r}, ${point.color.g}, ${point.color.b})`}
+      ></div>
+    {/each}
+  </div>
+{/if}
