@@ -22,10 +22,20 @@ namespace esphome
 
         void LightSyncComponent::setup()
         {
-            ESP_LOGCONFIG(TAG, "LightSync: setup, host=%s port=%u id=%s",
-                          this->server_host_.c_str(), this->server_port_,
-                          this->client_id_.c_str());
-            // Do not block; we connect later in loop().
+            // // Find the BrightsignSyncComponent instance
+            // this->brightsign_sync_ =
+            //     if (this->brightsign_sync_ == nullptr)
+            // {
+            //     ESP_LOGE(TAG, "BrightsignSyncComponent not found! LightSyncComponent requires it.");
+            //     return;
+            // }
+
+            // Register sync time callback
+            this->brightsign_sync_->addListener(
+                [this](brightsign_sync::BrightsignSyncTime msg)
+                {
+                    this->on_sync_time(msg.t, msg.x);
+                });
         }
 
         void LightSyncComponent::dump_config()
@@ -46,6 +56,7 @@ namespace esphome
 
         void LightSyncComponent::loop()
         {
+
             if (network::is_disabled())
                 return;
 
@@ -73,6 +84,9 @@ namespace esphome
 
         void LightSyncComponent::ensure_connected_()
         {
+            if (this->sequence_loaded_ && this->have_sync_)
+                return;
+
             if (this->connected_)
                 return;
 
@@ -111,33 +125,6 @@ namespace esphome
 
             this->tcp_->setblocking(true);
 
-#ifdef USE_HOST
-            // On host: use getaddrinfo() so hostnames and mDNS-capable resolvers work.
-            struct addrinfo hints;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-
-            struct addrinfo *res = nullptr;
-            int err = getaddrinfo(this->server_host_.c_str(), nullptr, &hints, &res);
-            if (err != 0 || res == nullptr)
-            {
-                ESP_LOGE(TAG, "DNS lookup failed for %s: %s",
-                         this->server_host_.c_str(), gai_strerror(err));
-                this->tcp_->close();
-                this->tcp_.reset();
-                if (res != nullptr)
-                    freeaddrinfo(res);
-                return false;
-            }
-
-            struct sockaddr_in server_addr = *reinterpret_cast<struct sockaddr_in *>(res->ai_addr);
-            server_addr.sin_port = htons(this->server_port_);
-            freeaddrinfo(res);
-
-            int ret = this->tcp_->connect(reinterpret_cast<struct sockaddr *>(&server_addr),
-                                          sizeof(server_addr));
-#else
             // On embedded targets (ESP), keep it simple for now:
             // - server_host_ should currently be a numeric IP string.
             struct sockaddr_storage server_addr{};
@@ -154,7 +141,6 @@ namespace esphome
             }
 
             int ret = this->tcp_->connect(reinterpret_cast<struct sockaddr *>(&server_addr), len);
-#endif
 
             if (ret != 0)
             {
@@ -250,7 +236,7 @@ namespace esphome
                 if (length > 0.0f)
                 {
                     this->total_length_s_ = length;
-                    this->total_length_ms_ = static_cast<uint32_t>(length * 1000.0f + 0.5f);
+                    this->total_length_ms_ = static_cast<uint32_t>(length);
 
                     ESP_LOGI(TAG, "Sequence length set to %.3fs (%u ms)",
                              this->total_length_s_, (unsigned)this->total_length_ms_);
@@ -269,7 +255,7 @@ namespace esphome
                 uint32_t r_i = 0, g_i = 0, b_i = 0;
 
                 // "SAMPLE 281300 223 222 241"
-                int parsed = std::sscanf(line.c_str(), "SAMPLE %lu %u %u %u",
+                int parsed = std::sscanf(line.c_str(), "SAMPLE %u %u %u %u",
                                          &t_ms_i, &r_i, &g_i, &b_i);
                 if (parsed != 4)
                 {
@@ -286,8 +272,17 @@ namespace esphome
                     return static_cast<uint8_t>(v);
                 };
 
+                auto clamp65535 = [](int v) -> uint16_t
+                {
+                    if (v < 0)
+                        v = 0;
+                    if (v > 65535)
+                        v = 65535;
+                    return static_cast<uint16_t>(v);
+                };
+
                 SequenceSample s{
-                    t_ms_i,
+                    clamp65535(t_ms_i),
                     clamp255(r_i),
                     clamp255(g_i),
                     clamp255(b_i),
@@ -298,6 +293,9 @@ namespace esphome
 
                 ESP_LOGD(TAG, "Sample t=%u ms rgb=(%d,%d,%d)",
                          (unsigned)s.time_ms, (int)s.r, (int)s.g, (int)s.b);
+
+                this->sequence_start_time_ms_ = this->sequence_.front().time_ms;
+                this->sequence_length_ms_ += s.time_ms;
                 return;
             }
 
@@ -317,30 +315,16 @@ namespace esphome
                 return;
             }
 
-            // --- SYNC <time_ms> ---
-            if (line.rfind("SYNC", 0) == 0)
-            {
-                uint32_t t_ms_i = 0;
-                // accepts "SYNC 9154"
-                int parsed = std::sscanf(line.c_str(), "SYNC %lu", &t_ms_i);
-                if (parsed != 1)
-                {
-                    ESP_LOGW(TAG, "SYNC parse failed (%d fields): '%s'", parsed, line.c_str());
-                    return;
-                }
-
-                if (t_ms_i < 0)
-                    t_ms_i = 0;
-
-                this->on_sync_time_(t_ms_i);
-                return;
-            }
-
             ESP_LOGD(TAG, "Unknown line from server: '%s'", line.c_str());
         }
 
-        void LightSyncComponent::on_sync_time_(uint32_t time_ms)
+        void LightSyncComponent::on_sync_time(uint32_t now_ms, uint32_t start_time_ms)
         {
+            auto time_ms = now_ms - start_time_ms;
+            if (time_ms > this->total_length_ms_ && this->total_length_ms_ > 0)
+            {
+                time_ms %= this->total_length_ms_;
+            }
             ESP_LOGI(TAG, "SYNC time=%u ms", (unsigned)time_ms);
             this->have_sync_ = true;
             this->base_sequence_time_ms_ = time_ms;
@@ -356,59 +340,67 @@ namespace esphome
             uint32_t elapsed_ms = now_ms - this->base_clock_ms_;
             uint32_t t_ms = this->base_sequence_time_ms_ + elapsed_ms;
 
-            // Loop, if we have a length
-            if (this->total_length_ms_ > 0)
-            {
-                t_ms %= this->total_length_ms_;
-            }
-
+            ESP_LOGD(TAG, "Playback time: %u ms", (unsigned)t_ms);
             const auto &seq = this->sequence_;
 
             // Before first sample
-            if (t_ms <= seq.front().time_ms)
+            if (t_ms <= this->sequence_start_time_ms_)
             {
                 const auto &s = seq.front();
                 this->current_r_ = s.r;
                 this->current_g_ = s.g;
                 this->current_b_ = s.b;
                 this->has_color_ = true;
+
+                ESP_LOGD(TAG, "Before first sample rgb=(%d,%d,%d)",
+                         (int)this->current_r_, (int)this->current_g_, (int)this->current_b_);
                 return;
             }
 
             // After last sample
-            if (t_ms >= seq.back().time_ms)
+            if (t_ms >= this->sequence_length_ms_)
             {
                 const auto &s = seq.back();
                 this->current_r_ = s.r;
                 this->current_g_ = s.g;
                 this->current_b_ = s.b;
                 this->has_color_ = true;
+                ESP_LOGD(TAG, "After last sample rgb=(%d,%d,%d)",
+                         (int)this->current_r_, (int)this->current_g_, (int)this->current_b_);
                 return;
             }
 
             // Between samples: find surrounding pair
             size_t i = 0;
-            for (; i + 1 < seq.size(); i++)
+            uint32_t t_sum = seq[0].time_ms;
+            for (; i < (seq.size() - 1); i++)
             {
-                if (t_ms < seq[i + 1].time_ms)
+                auto c_t = seq[i + 1].time_ms;
+                if (t_ms < t_sum + c_t)
                     break;
+
+                t_sum += c_t;
             }
 
             const auto &a = seq[i];
             const auto &b = seq[i + 1];
 
-            uint32_t span_ms = b.time_ms - a.time_ms;
-            if (span_ms == 0)
-            {
-                this->current_r_ = a.r;
-                this->current_g_ = a.g;
-                this->current_b_ = a.b;
-                this->has_color_ = true;
-                return;
-            }
+            uint32_t span_ms = b.time_ms;
 
             // one bit of float math for interpolation only
-            float u = float(t_ms - a.time_ms) / float(span_ms);
+            if (span_ms == 0)
+            {
+                // avoid div0
+                span_ms = 1;
+            }
+            float u = float(t_ms - t_sum) / float(span_ms);
+
+            ESP_LOGD(TAG, "Interpolating between samples %u and %u (u=%.3f)",
+                     (unsigned)i, (unsigned)(i + 1), u);
+
+            // float r = a.r;  //(1.0f - u) * a.r + u * b.r;
+            // float g = a.g;  //(1.0f - u) * a.g + u * b.g;
+            // float bl = a.b; //(1.0f - u) * a.b + u * b.b;
 
             float r = (1.0f - u) * a.r + u * b.r;
             float g = (1.0f - u) * a.g + u * b.g;
@@ -427,6 +419,9 @@ namespace esphome
             this->current_g_ = clamp_byte(g);
             this->current_b_ = clamp_byte(bl);
             this->has_color_ = true;
+
+            ESP_LOGD(TAG, "Interpolated rgb=(%d,%d,%d)",
+                     (int)this->current_r_, (int)this->current_g_, (int)this->current_b_);
         }
 
         std::string LightSyncComponent::trim_(const std::string &s)

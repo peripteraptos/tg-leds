@@ -48,10 +48,12 @@ namespace esphome
             call.set_state(true);
             call.set_transition_length(0);
             call.set_rgb(r / 255.0, g / 255.0, b / 255.0);
+            auto brightness = (r + g + b) / 255.0 / 3.0;
+            call.set_brightness(brightness);
             call.perform();
 
-            ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
-                     (int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(r * 255), (int)(g * 255), (int)(b * 255));
+            // ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
+            //          (int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(r * 255), (int)(g * 255), (int)(b * 255));
         }
 
     } // namespace light_sync
