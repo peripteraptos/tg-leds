@@ -8,3 +8,6 @@ brs/
 ffmpeg.wasm/
 concert-esphome
 convert-esphome
+python/venv
+node_modules
+venv
