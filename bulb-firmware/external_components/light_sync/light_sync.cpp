@@ -70,8 +70,13 @@ namespace esphome
             }
 
             // build message doc as string
-            std::string message = R"({"message": "HELLO", "id": )" + std::to_string(this->client_id_) + "}";
+            // std::string message = R"({"message": "HELLO", "id": )" + std::to_string(this->client_id_) + "}";
 
+            auto message = json::build_json([this](JsonObject obj) -> void
+                                            {
+            obj["message"] = "HELLO";
+            obj["id"] = this->client_id_;
+            obj["last_buffered_frame"] = this->bufferhead_id_; });
             // You can set the destination address/port here
             // this->parent_->send_packet(
             //     reinterpret_cast<const uint8_t *>(message.c_str()),
@@ -83,7 +88,8 @@ namespace esphome
             // no inet_pton does not exist on libretiny!
             // inet_pton(AF_INET, this->server_addr_.c_str(), &dest_addr.sin_addr);
             dest_addr.sin_addr.s_addr = inet_addr(this->server_addr_.c_str());
-            this->sock_->sendto(message.c_str(), message.size(), 0,
+            this->sock_->sendto(message.c_str(), message.size(),
+                                0,
                                 reinterpret_cast<struct sockaddr *>(&dest_addr),
                                 sizeof(dest_addr));
 
@@ -253,6 +259,7 @@ namespace esphome
 
         void LightSyncComponent::on_frame_received_(uint16_t frame_index, uint8_t r, uint8_t g, uint8_t b)
         {
+            bufferhead_id_ = frame_index;
             // Decide if this frame is useful: ahead of current and not too far
             uint16_t d = forward_dist(current_frame_, frame_index, total_frames_);
 

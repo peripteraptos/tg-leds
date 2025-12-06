@@ -74,6 +74,7 @@ namespace esphome
 
             SequenceFrame buffer_[BUF_SIZE];
             uint32_t playhead_id_{0};
+            uint32_t bufferhead_id_{0};
             uint32_t last_step_ms_{0};
             uint32_t frame_interval_ms_{42}; // 25 fps, adjust to your video
             uint32_t total_frames_{0};

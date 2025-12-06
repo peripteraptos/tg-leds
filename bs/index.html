@@ -123,12 +123,9 @@
         if (json.message?.toUpperCase() == "HELLO") {
           let lightId = json.id;
           let device = devices.find((d) => d.id == lightId);
-          if (device && !device.ip) {
+          if (device) {
             device.ip = sourceIp;
-            device.last_buffered_frame = 0;
-            console.log(
-              "Registered device " + lightId + " with IP " + sourceIp
-            );
+            device.last_buffered_frame = json.last_buffered_frame || 0;
           } else {
             console.log("Unknown device ID " + lightId);
           }
@@ -155,13 +152,26 @@
           if (device.ip) {
             let current_frame = Math.floor(videoPlayer.currentTime * fps);
             let buffer_ahead = 10; // seconds
-            let target_frame = current_frame + buffer_ahead * fps;
+            let target_frame =
+              (current_frame + buffer_ahead * fps) % total_frames;
+            let is_wrapping = target_frame < current_frame;
+            let n_frames = is_wrapping
+              ? total_frames - current_frame + target_frame
+              : target_frame - current_frame;
             let samples_to_send = [];
 
+            if (device.last_buffered_frame >= total_frames - 1) {
+              device.last_buffered_frame = 0;
+            }
+
+            if (is_wrapping && device.last_buffered_frame < current_frame) {
+              device.last_buffered_frame = current_frame;
+            }
+
             for (
-              let f = device.last_buffered_frame;
-              f < target_frame && f < total_frames;
-              f++
+              let f = device.last_buffered_frame + 1;
+              f != (target_frame + 1) % total_frames;
+              f = (f + 1) % total_frames
             ) {
               let { r, g, b } = device.samples[f % device.samples.length];
               samples_to_send.push({ f, r, g, b });
@@ -177,10 +187,6 @@
                 await sleep(10); // slight delay to avoid flooding
               });
 
-              if (device.last_buffered_frame >= total_frames) {
-                device.last_buffered_frame = 0;
-              }
-
               console.log(
                 `Sent ${samples_to_send.length} samples to device ${device.id} (IP: ${device.ip}) up to frame ${target_frame}`
               );
@@ -190,23 +196,23 @@
       }, 100);
 
       setInterval(() => {
-        devices.forEach(async (device) => {
-          if (device.ip) {
-            let current_frame = Math.floor(videoPlayer.currentTime * fps);
-            let time = videoPlayer.currentTime * 1000;
+        // devices.forEach(async (device) => {
+        // if (device.ip) {
+        let current_frame = Math.floor(videoPlayer.currentTime * fps);
+        let time = videoPlayer.currentTime * 1000;
 
-            bsSocketMessage.SendTo(
-              device.ip,
-              1234,
-              JSON.stringify({
-                message: "SYNC",
-                frame: current_frame,
-                time,
-              })
-            );
-            await sleep(100);
-          }
-        });
+        bsSocketMessage.SendTo(
+          "255.255.255.255",
+          1234,
+          JSON.stringify({
+            message: "SYNC",
+            frame: current_frame,
+            time,
+          })
+        );
+        // await sleep(100);
+        // }
+        // });
       }, 1000);
     </script>
   </body>
