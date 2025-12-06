@@ -21,7 +21,6 @@ namespace esphome
 
         struct SequenceSample
         {
-            uint16_t time_ms; // time in milliseconds
             uint8_t r;
             uint8_t g;
             uint8_t b;
@@ -37,7 +36,7 @@ namespace esphome
 
             void set_server_host(const std::string &host) { this->server_host_ = host; }
             void set_server_port(uint16_t port) { this->server_port_ = port; }
-            void set_client_id(const std::string &id) { this->client_id_ = id; }
+            void set_client_id(uint8_t id) { this->client_id_ = id; }
 
             void set_brightsign_sync(brightsign_sync::BrightsignSyncComponent *bs)
             {
@@ -54,6 +53,8 @@ namespace esphome
                 b = this->current_b_;
                 return true;
             }
+            void set_fps(float fps) { this->fps_ = fps; }
+            void set_current_frame(uint32_t frame) { this->current_frame_ = frame; }
 
         protected:
             void ensure_connected_();
@@ -68,19 +69,23 @@ namespace esphome
 
             std::string server_host_;
             uint16_t server_port_{0};
-            std::string client_id_;
+            uint8_t client_id_;
+            uint8_t reconnect_attempts_{0};
+            uint32_t last_reconnect_attempt_ms_{0};
 
             std::unique_ptr<socket::Socket> tcp_;
             bool connected_{false};
             std::string recv_buffer_;
 
             std::vector<SequenceSample> sequence_;
-            uint32_t sequence_length_ms_{0};
-            uint32_t sequence_start_time_ms_{0};
 
             bool sequence_loaded_{false};
             float total_length_s_{0.0f};  // keep for logging
             uint32_t total_length_ms_{0}; // for looping
+
+            float fps_{8.0f};
+
+            uint32_t current_frame_{0};
 
             bool have_sync_{false};
             uint32_t base_sequence_time_ms_{0}; // SYNC time in ms

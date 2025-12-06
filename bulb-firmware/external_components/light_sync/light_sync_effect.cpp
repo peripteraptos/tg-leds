@@ -52,8 +52,8 @@ namespace esphome
             call.set_brightness(brightness);
             call.perform();
 
-            // ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
-            //          (int)(r * 255), (int)(g * 255), (int)(b * 255), (int)(r * 255), (int)(g * 255), (int)(b * 255));
+            ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
+                     (int)(r), (int)(g), (int)(b), (int)(r), (int)(g), (int)(b));
         }
 
     } // namespace light_sync

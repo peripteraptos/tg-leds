@@ -30,7 +30,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_BS_ID): cv.use_id(BrightsignSyncComponent),
         cv.Required(CONF_HOST): cv.string,
         cv.Required(CONF_PORT): cv.port,
-        cv.Optional(CONF_CLIENT_ID): cv.string,
+        cv.Optional(CONF_CLIENT_ID): cv.uint8_t,
     }
 )
 
@@ -47,7 +47,7 @@ async def to_code(config):
         cg.add(var.set_client_id(config[CONF_CLIENT_ID]))
     else:
         # default client id: node name
-        cg.add(var.set_client_id(cg.RawExpression("App.get_name()")))
+        cg.add(var.set_client_id(1))
 
 
 # ----- Effect schema & registration -----
