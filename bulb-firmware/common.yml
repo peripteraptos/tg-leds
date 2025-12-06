@@ -7,7 +7,7 @@ external_components:
 
 # udp:
 #   # listen_address: "224.0.0.250" # mDNS group
-#   port: 1539
+#   port: 1234
 #   on_receive:
 #     then:
 #       - logger.log:
@@ -16,6 +16,12 @@ external_components:
 
 logger:
   level: INFO
+# logger:
+#   level: DEBUG
+#   logs:
+#     light_sync: DEBUG
+#     light: INFO
+
 # light_sync:
 #   id: light_sync0
 #   server_host: 192.168.188.22
@@ -25,10 +31,8 @@ logger:
 #   g_out: green_out
 #   b_out: blue_out
 
-brightsign_sync:
-  id: bsync
+# brightsign_sync:
+#   id: bsync
 light_sync:
   id: ls
-  host: 192.168.188.23
-  port: 1234
-  brightsign_sync_id: bsync
+  client_id: ${device_number}

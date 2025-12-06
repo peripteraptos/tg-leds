@@ -4,26 +4,25 @@
 
 #ifdef USE_NETWORK
 
+#include "esphome/core/log.h"
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
+#include "esphome/components/json/json_util.h"
 #include "esphome/components/socket/socket.h"
-#include "esphome/components/network/util.h"
-#include "../brightsign_sync/brightsign_sync.h"
-
-#include <memory>
-#include <string>
-#include <vector>
 
 namespace esphome
 {
     namespace light_sync
     {
 
-        struct SequenceSample
+        static constexpr uint16_t MAX_FRAMES = 15000;
+        static constexpr uint16_t BUF_SIZE = 1024;
+
+        struct SequenceFrame
         {
-            uint8_t r;
-            uint8_t g;
-            uint8_t b;
+            bool valid = false;
+            uint16_t frame_index = 0; // 0..total_frames-1
+            uint8_t r = 0, g = 0, b = 0;
         };
 
         class LightSyncComponent : public Component
@@ -31,66 +30,58 @@ namespace esphome
         public:
             void setup() override;
             void loop() override;
-            void dump_config() override;
             float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
-            void set_server_host(const std::string &host) { this->server_host_ = host; }
-            void set_server_port(uint16_t port) { this->server_port_ = port; }
-            void set_client_id(uint8_t id) { this->client_id_ = id; }
-
-            void set_brightsign_sync(brightsign_sync::BrightsignSyncComponent *bs)
-            {
-                this->brightsign_sync_ = bs;
-            }
-
-            /// Returns true if a valid current RGB value is available.
             bool get_current_rgb(uint8_t &r, uint8_t &g, uint8_t &b) const
             {
-                if (!this->sequence_loaded_ || !this->has_color_)
+                if (!this->has_color_)
                     return false;
                 r = this->current_r_;
                 g = this->current_g_;
                 b = this->current_b_;
                 return true;
             }
-            void set_fps(float fps) { this->fps_ = fps; }
-            void set_current_frame(uint32_t frame) { this->current_frame_ = frame; }
+
+            void set_client_id(uint8_t client_id)
+            {
+                this->client_id_ = client_id;
+            }
+
+            void set_listen_port(uint16_t port)
+            {
+                this->listen_port_ = port;
+            }
+            void set_broadcast_port(uint16_t port)
+            {
+                this->broadcast_port_ = port;
+            }
 
         protected:
-            void ensure_connected_();
-            bool connect_to_server_();
-            void send_hello_();
-            brightsign_sync::BrightsignSyncComponent *brightsign_sync_{nullptr};
-            void process_tcp_();
-            void process_line_(const std::string &line);
             void update_playback_();
+            void handle_packet_();
+            void send_ping_();
+            void on_frame_received_(uint16_t frame_index, uint8_t r, uint8_t g, uint8_t b);
+            uint32_t unwrap_frame_id_(uint16_t frame_mod);
 
-            static std::string trim_(const std::string &s);
-
-            std::string server_host_;
-            uint16_t server_port_{0};
             uint8_t client_id_;
-            uint8_t reconnect_attempts_{0};
-            uint32_t last_reconnect_attempt_ms_{0};
 
-            std::unique_ptr<socket::Socket> tcp_;
-            bool connected_{false};
-            std::string recv_buffer_;
+            std::unique_ptr<socket::Socket> sock_;
 
-            std::vector<SequenceSample> sequence_;
-
-            bool sequence_loaded_{false};
-            float total_length_s_{0.0f};  // keep for logging
-            uint32_t total_length_ms_{0}; // for looping
-
-            float fps_{8.0f};
-
+            std::string server_addr_{};
+            uint32_t last_ping_ms_{0};
+            uint32_t received_samples_n_{0};
             uint32_t current_frame_{0};
 
-            bool have_sync_{false};
-            uint32_t base_sequence_time_ms_{0}; // SYNC time in ms
-            uint32_t base_clock_ms_{0};
-            void on_sync_time(uint32_t time_ms, uint32_t start_time_ms);
+            SequenceFrame buffer_[BUF_SIZE];
+            uint32_t playhead_id_{0};
+            uint32_t last_step_ms_{0};
+            uint32_t frame_interval_ms_{42}; // 25 fps, adjust to your video
+            uint32_t total_frames_{0};
+
+            void apply_pixel_(uint8_t r, uint8_t g, uint8_t b);
+
+            uint16_t listen_port_{1234}; // whatever port you need
+            uint16_t broadcast_port_{1235};
 
             // current color state
             bool has_color_{false};
@@ -99,6 +90,24 @@ namespace esphome
             uint8_t current_b_{0};
         };
 
+        // forward distance when moving from `from` to `to` along the ring
+        static inline uint16_t forward_dist(uint16_t from, uint16_t to, uint16_t total)
+        {
+            return (uint16_t)((to + total - from) % total);
+        }
+
+        // is `candidate` ahead of `base` but not more than half a cycle?
+        static inline bool is_ahead(uint16_t base, uint16_t candidate, uint16_t total)
+        {
+            uint16_t d = forward_dist(base, candidate, total);
+            return d > 0 && d < total / 2;
+        }
+
+        // is `candidate` behind `base` (i.e. base ahead of candidate)?
+        static inline bool is_behind(uint16_t base, uint16_t candidate, uint16_t total)
+        {
+            return is_ahead(candidate, base, total);
+        }
     } // namespace light_sync
 } // namespace esphome
 

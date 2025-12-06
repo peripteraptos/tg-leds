@@ -2,17 +2,6 @@
 
 #ifdef USE_NETWORK
 
-#include "esphome/core/log.h"
-#include "esphome/core/util.h"
-
-#include <cstdlib> // std::strtof, std::sscanf
-#include <cstring>
-#include <cmath>
-
-#ifdef USE_HOST
-#include <netdb.h>
-#endif
-
 namespace esphome
 {
     namespace light_sync
@@ -23,339 +12,306 @@ namespace esphome
         void LightSyncComponent::setup()
         {
 
-            // Register sync time callback
-            this->brightsign_sync_->addListener(
-                [this](brightsign_sync::BrightsignSyncTime msg)
-                {
-                    this->on_sync_time(msg.t, msg.x);
-                });
+            using socket::set_sockaddr_any;
+            using socket::socket_ip;
+
+            // Create UDP socket (IPv4 or IPv6 depending on config)
+            this->sock_ = socket_ip(SOCK_DGRAM, IPPROTO_UDP);
+            if (!this->sock_)
+            {
+                status_set_error("Failed to create UDP socket");
+                mark_failed();
+                return;
+            }
+
+            // Bind to any address on your port
+            struct sockaddr addr{};
+            auto len = socket::set_sockaddr_any(&addr, sizeof(addr), this->listen_port_);
+            if (len == 0)
+            {
+                status_set_error("set_sockaddr_any failed");
+                mark_failed();
+                return;
+            }
+
+            if (this->sock_->bind(&addr, len) != 0)
+            {
+                status_set_error("bind() failed");
+                mark_failed();
+                return;
+            }
+
+            // Non-blocking is usually nice
+            this->sock_->setblocking(false);
+
+            // this->parent_->add_listener([this](std::vector<uint8_t> &buf)
+            //                             { this->on_packet_received(buf); });
+
+            // this->parent_->set_listen_port(1234);
+            // this->parent_->set_broadcast_port(1235);
+            // this->parent_->set_should_broadcast();
+            // this->parent_->set_should_listen();
+            // this->parent_->setup();
         }
 
-        void LightSyncComponent::dump_config()
+        void LightSyncComponent::send_ping_()
         {
-            ESP_LOGCONFIG(TAG, "LightSync:");
-            ESP_LOGCONFIG(TAG, "  Server: %s:%u", this->server_host_.c_str(), this->server_port_);
-            ESP_LOGCONFIG(TAG, "  Client ID: %u", this->client_id_);
-            if (this->sequence_loaded_)
+
+            uint32_t now = millis();
+            if (now - this->last_ping_ms_ < 3000)
+                return; // send ping every 5 seconds
+
+            this->last_ping_ms_ = now;
+
+            if (this->server_addr_.empty())
             {
-                ESP_LOGCONFIG(TAG, "  Sequence loaded: %u samples, length=%.3fs",
-                              (unsigned)this->sequence_.size(), this->total_length_s_);
+                ESP_LOGD(TAG, "Server address not set, cannot respond");
+                return;
             }
-            else
-            {
-                ESP_LOGCONFIG(TAG, "  Sequence not loaded yet");
-            }
+
+            // build message doc as string
+            std::string message = R"({"message": "HELLO", "id": )" + std::to_string(this->client_id_) + "}";
+
+            // You can set the destination address/port here
+            // this->parent_->send_packet(
+            //     reinterpret_cast<const uint8_t *>(message.c_str()),
+            //     strlen(message.c_str()));
+
+            struct sockaddr_in dest_addr{};
+            dest_addr.sin_family = AF_INET;
+            dest_addr.sin_port = htons(1235); // destination port
+            // no inet_pton does not exist on libretiny!
+            // inet_pton(AF_INET, this->server_addr_.c_str(), &dest_addr.sin_addr);
+            dest_addr.sin_addr.s_addr = inet_addr(this->server_addr_.c_str());
+            this->sock_->sendto(message.c_str(), message.size(), 0,
+                                reinterpret_cast<struct sockaddr *>(&dest_addr),
+                                sizeof(dest_addr));
+
+            ESP_LOGD(TAG, "Sent HELLO to %s:1235", this->server_addr_.c_str());
         }
 
         void LightSyncComponent::loop()
         {
-            if (last_reconnect_attempt_ms_ != 0 && millis() - last_reconnect_attempt_ms_ < 3000)
+
+            send_ping_();
+            update_playback_();
+            handle_packet_();
+        }
+        void LightSyncComponent::handle_packet_()
+        {
+            if (!this->sock_)
+                return;
+
+            // Optional: if you compiled with select support and used socket_ip_loop_monitored,
+            // you can check .ready() here. On LibreTiny you often don’t have that, so just try.
+            uint8_t buf[512];
+
+            auto len = this->sock_->read(buf, sizeof(buf));
+            if (len <= 0)
             {
-                // wait 3 seconds between reconnect attempts
+                // -1 with EAGAIN/EWOULDBLOCK is normal for non-blocking
                 return;
             }
 
-            if (network::is_disabled())
-                return;
+            // try json parse
 
-            if (!network::is_connected())
+            auto doc = json::parse_json(std::string(reinterpret_cast<const char *>(buf), (size_t)len));
+            auto obj = doc.as<JsonObjectConst>();
+            if (obj["message"].is<std::string>())
             {
-                // Network not ready yet; reset state
-                if (this->tcp_)
+                std::string message = obj["message"].as<std::string>();
+
+                if (message == "DISCOVER")
                 {
-                    this->tcp_->close();
-                    this->tcp_.reset();
+                    // set server ip
+                    ESP_LOGD(TAG, "DISCOVER received");
+                    if (this->server_addr_.empty())
+                    {
+
+                        ESP_LOGI(TAG, "Set server address to %s",
+                                 this->server_addr_.c_str());
+                        this->server_addr_ = obj["ip"].as<std::string>();
+                        // this->parent_->add_address(this->server_addr_.c_str());
+                    }
+                    this->server_addr_ = obj["ip"].as<std::string>();
+                    this->total_frames_ = obj["total_frames"];
                 }
-                this->connected_ = false;
-                return;
-            }
-
-            // Make sure we have a TCP connection and handshaked
-            this->ensure_connected_();
-
-            // Process any incoming data from the server (including SYNC lines)
-            this->process_tcp_();
-
-            // Update local playback clock and current RGB
-            this->update_playback_();
-        }
-
-        void LightSyncComponent::ensure_connected_()
-        {
-            if (this->connected_)
-                return;
-
-            // Try to connect if we don't have a socket yet
-            if (!this->tcp_)
-            {
-                if (!this->connect_to_server_())
+                else if (message == "SYNC")
                 {
-                    // Retry later
-                    return;
+                    auto time = obj["time"];
+                    auto frame = obj["frame"];
+                    ESP_LOGI(TAG, "SYNC received time=%u, frame=%u", (unsigned)time, (unsigned)frame);
+                    this->current_frame_ = frame;
                 }
-            }
+                else if (message == "SAMPLES")
+                {
 
-            // Send initial hello with client id
-            this->send_hello_();
-            this->connected_ = true;
+                    this->received_samples_n_++;
+                    if (this->received_samples_n_ % 100 == 0)
+                        ESP_LOGI(TAG, "Total samples received: %u", this->received_samples_n_);
 
-            // Reset sequence state, we expect a new one after this
-            // this->sequence_.clear();
-            // this->sequence_loaded_ = false;
-            // this->have_sync_ = false;
-            // this->has_color_ = false;
-        }
-
-        bool LightSyncComponent::connect_to_server_()
-        {
-            ESP_LOGI(TAG, "Connecting to %s:%u ...",
-                     this->server_host_.c_str(), this->server_port_);
-
-            this->tcp_ = socket::socket_ip(SOCK_STREAM, 0);
-            if (!this->tcp_)
-            {
-                ESP_LOGE(TAG, "Failed to create TCP socket");
-                return false;
-            }
-
-            this->tcp_->setblocking(true);
-
-            // On embedded targets (ESP), keep it simple for now:
-            // - server_host_ should currently be a numeric IP string.
-            struct sockaddr_storage server_addr{};
-            socklen_t len =
-                socket::set_sockaddr(reinterpret_cast<struct sockaddr *>(&server_addr),
-                                     sizeof(server_addr),
-                                     this->server_host_, this->server_port_);
-            if (len == 0)
-            {
-                ESP_LOGE(TAG, "Invalid server IP address: %s", this->server_host_.c_str());
-                this->tcp_->close();
-                this->tcp_.reset();
-                return false;
-            }
-
-            int ret = this->tcp_->connect(reinterpret_cast<struct sockaddr *>(&server_addr), len);
-
-            if (ret != 0)
-            {
-                ESP_LOGE(TAG, "TCP connect() failed, errno=%d", errno);
-                this->tcp_->close();
-                this->tcp_.reset();
-
-                this->reconnect_attempts_++;
-                this->last_reconnect_attempt_ms_ = millis();
-                return false;
-            }
-
-            ESP_LOGI(TAG, "Connected to server");
-            return true;
-        }
-
-        void LightSyncComponent::send_hello_()
-        {
-            if (!this->tcp_)
-                return;
-
-            std::string line = "HELLO " + std::to_string(this->client_id_) + "\n";
-            auto written = this->tcp_->write(line.c_str(), line.size());
-            if (written < 0)
-            {
-                ESP_LOGW(TAG, "Failed to send HELLO");
+                    uint16_t frame_mod = doc["f"];
+                    uint8_t r = doc["r"];
+                    uint8_t g = doc["g"];
+                    uint8_t b = doc["b"];
+                    on_frame_received_(frame_mod, r, g, b);
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "Received message: %s", message.c_str());
+                }
             }
             else
             {
-                ESP_LOGD(TAG, "Sent HELLO (%d bytes)", (int)written);
-            }
-
-            // Reset sequence state, we expect a new one after this
-            this->sequence_.clear();
-            this->sequence_loaded_ = false;
-            this->have_sync_ = false;
-            this->has_color_ = false;
-        }
-
-        void LightSyncComponent::process_tcp_()
-        {
-            if (!this->tcp_)
-                return;
-
-            // Make the socket non-blocking-ish: read what's readily available.
-            this->tcp_->setblocking(false);
-
-            uint8_t buf[256];
-            size_t total_read = 0;
-            while (this->tcp_->ready())
-            {
-                auto len = this->tcp_->read(buf, sizeof(buf));
-                if (len <= 0)
-                    break; // nothing or error; we'll reconnect later if needed
-                this->recv_buffer_.append(reinterpret_cast<char *>(buf), (size_t)len);
-            }
-
-            // Put it back to blocking for connect/other calls (just to be safe).
-            this->tcp_->setblocking(true);
-
-            // Parse complete lines
-            while (true)
-            {
-                auto pos = this->recv_buffer_.find('\n');
-                if (pos == std::string::npos)
-                    break;
-                std::string line = this->recv_buffer_.substr(0, pos);
-                this->recv_buffer_.erase(0, pos + 1);
-                this->process_line_(trim_(line));
+                // ESP_LOGI(TAG, "JSON does not contain 'message' key");
             }
         }
 
-        void LightSyncComponent::process_line_(const std::string &line_in)
+        uint32_t LightSyncComponent::unwrap_frame_id_(uint16_t frame_mod)
         {
-            if (line_in.empty())
-                return;
+            static bool initialized = false;
+            static uint32_t last_abs = 0;
 
-            const std::string line = trim_(line_in);
-
-            ESP_LOGD(TAG, "Line from server: '%s'", line.c_str());
-
-            // --- SEQLEN <seconds> ---
-            if (line.rfind("SEQLEN", 0) == 0)
+            if (!initialized)
             {
-                const char *p = line.c_str() + 6; // skip "SEQLEN"
-                while (*p == ' ' || *p == '\t')
-                    ++p;
-
-                char *endptr = nullptr;
-                float length = std::strtof(p, &endptr);
-                if (endptr == p || !std::isfinite(length))
-                {
-                    ESP_LOGW(TAG, "SEQLEN parse failed: '%s'", line.c_str());
-                    return;
-                }
-
-                if (length > 0.0f)
-                {
-                    this->total_length_s_ = length;
-                    this->total_length_ms_ = static_cast<uint32_t>(length);
-
-                    ESP_LOGI(TAG, "Sequence length set to %.3fs (%u ms)",
-                             this->total_length_s_, (unsigned)this->total_length_ms_);
-                }
-                else
-                {
-                    ESP_LOGW(TAG, "SEQLEN length <= 0: %.3f", length);
-                }
-                return;
+                initialized = true;
+                last_abs = frame_mod;
+                return last_abs;
             }
 
-            // --- SAMPLE <t_ms> <r> <g> <b> ---
-            if (line.rfind("SAMPLE", 0) == 0)
+            uint16_t last_mod = last_abs % total_frames_;
+
+            // signed diff in "ring space"
+            int32_t diff = (int32_t)frame_mod - (int32_t)last_mod;
+
+            // normalize to (-total_frames/2, +total_frames/2]
+            int32_t half = total_frames_ / 2;
+            if (diff < -half)
             {
-                uint32_t r_i = 0, g_i = 0, b_i = 0;
-
-                // "SAMPLE 281300 223 222 241"
-                int parsed = std::sscanf(line.c_str(), "SAMPLE %u %u %u",
-                                         &r_i, &g_i, &b_i);
-                if (parsed != 3)
-                {
-                    ESP_LOGW(TAG, "SAMPLE parse failed (%d fields): '%s'", parsed, line.c_str());
-                    return;
-                }
-
-                auto clamp255 = [](int v) -> uint8_t
-                {
-                    if (v < 0)
-                        v = 0;
-                    if (v > 255)
-                        v = 255;
-                    return static_cast<uint8_t>(v);
-                };
-
-                SequenceSample s{
-                    clamp255(r_i),
-                    clamp255(g_i),
-                    clamp255(b_i),
-                };
-
-                this->sequence_.push_back(s);
-                this->sequence_loaded_ = true;
-
-                ESP_LOGD(TAG, "Sample rgb=(%d,%d,%d)",
-                         (int)s.r, (int)s.g, (int)s.b);
-                return;
+                diff += total_frames_; // we wrapped forward
+            }
+            else if (diff > half)
+            {
+                diff -= total_frames_; // (would be a wrap backward – rare, but whatever)
             }
 
-            // --- SEQEND ---
-            if (line == "SEQEND")
-            {
-                if (this->sequence_.empty())
-                {
-                    ESP_LOGW(TAG, "SEQEND received but no samples");
-                }
-                else
-                {
-                    ESP_LOGI(TAG, "Sequence finished: %u samples",
-                             (unsigned)this->sequence_.size());
-                    // sequence_loaded_ already set when first sample arrived
-                }
-                return;
-            }
-
-            ESP_LOGD(TAG, "Unknown line from server: '%s'", line.c_str());
-        }
-
-        void LightSyncComponent::on_sync_time(uint32_t now_ms, uint32_t start_time_ms)
-        {
-            auto time_ms = now_ms - start_time_ms;
-            if (time_ms > this->total_length_ms_ && this->total_length_ms_ > 0)
-            {
-                time_ms %= this->total_length_ms_;
-            }
-            ESP_LOGI(TAG, "SYNC time=%u ms", (unsigned)time_ms);
-            this->have_sync_ = true;
-            this->base_sequence_time_ms_ = time_ms;
-            this->base_clock_ms_ = millis();
+            last_abs += diff;
+            return last_abs;
         }
 
         void LightSyncComponent::update_playback_()
         {
-            if (!this->sequence_loaded_ || !this->have_sync_ || this->sequence_.empty())
+            uint32_t now = millis();
+            if ((now - last_step_ms_) < frame_interval_ms_)
                 return;
 
-            uint32_t now_ms = millis();
-            uint32_t elapsed_ms = now_ms - this->base_clock_ms_;
-            uint32_t t_ms = this->base_sequence_time_ms_ + elapsed_ms;
+            last_step_ms_ = now;
 
-            if (elapsed_ms < (1000.0f / this->fps_))
-                return; // no need to update yet
+            // advance playhead
+            current_frame_ = (uint16_t)((current_frame_ + 1) % total_frames_);
 
-            uint32_t frame_duration_ms = static_cast<uint32_t>(1000.0f / this->fps_);
-            uint32_t total_frames = static_cast<uint32_t>(this->total_length_ms_ / frame_duration_ms);
-            if (total_frames == 0)
-                total_frames = 1;
+            // Find the slot for current_frame_ and clean up old ones
+            SequenceFrame *slot_for_current = nullptr;
 
-            uint8_t r = 0, g = 0, b = 0;
-            uint32_t frame_index = (t_ms / frame_duration_ms) % total_frames;
-            if (frame_index >= this->sequence_.size())
-                frame_index = static_cast<uint32_t>(this->sequence_.size() - 1);
-            const SequenceSample &sample = this->sequence_[frame_index];
+            for (uint16_t i = 0; i < BUF_SIZE; i++)
+            {
+                SequenceFrame &s = buffer_[i];
+                if (!s.valid)
+                {
+                    // ESP_LOGD(TAG, "Slot %u is free", (unsigned)i);
+                    continue;
+                }
 
-            ESP_LOGD(TAG, "Playback t_ms=%u frame_index=%u", (unsigned)t_ms, (unsigned)frame_index);
+                if (s.frame_index == current_frame_)
+                {
+                    // ESP_LOGD(TAG, "Slot %u is for current frame %u", (unsigned)i, (unsigned)current_frame_);
+                    slot_for_current = &s;
+                    continue;
+                }
 
-            this->current_r_ = sample.r;
-            this->current_g_ = sample.g;
-            this->current_b_ = sample.b;
-            this->has_color_ = true;
+                // if this frame is behind the playhead, we don't need it anymore
+                if (is_behind(current_frame_, s.frame_index, total_frames_))
+                {
+                    // ESP_LOGD(TAG, "Dropping old frame %u (playhead %u)",
+                    //          (unsigned)s.frame_index, (unsigned)current_frame_);
+                    s.valid = false; // free slot
+                }
+            }
+
+            if (slot_for_current != nullptr)
+            {
+                // We have data for this frame: show it and free slot
+                apply_pixel_(slot_for_current->r, slot_for_current->g, slot_for_current->b);
+                slot_for_current->valid = false;
+            }
+            else
+            {
+                // ESP_LOGD(TAG, "No data for current frame %u", (unsigned)current_frame_);
+                // No new frame for this index → keep old color, or fade, etc.
+            }
         }
 
-        std::string LightSyncComponent::trim_(const std::string &s)
+        void LightSyncComponent::on_frame_received_(uint16_t frame_index, uint8_t r, uint8_t g, uint8_t b)
         {
-            size_t start = 0;
-            while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r'))
-                ++start;
-            size_t end = s.size();
-            while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r'))
-                --end;
-            return s.substr(start, end - start);
+            // Decide if this frame is useful: ahead of current and not too far
+            uint16_t d = forward_dist(current_frame_, frame_index, total_frames_);
+
+            if (d == 0)
+            {
+                // It's "now": you can either apply immediately or let the next tick pick it up.
+                apply_pixel_(r, g, b);
+                return;
+            }
+
+            if (d >= total_frames_ / 2)
+            {
+                // This means it's behind the current_frame_ (old frame from previous cycle).
+                // We don't need it.
+                // ESP_LOGD(TAG, "Dropping old frame %u (playhead %u)",
+                //          (unsigned)frame_index, (unsigned)current_frame_);
+                return;
+            }
+
+            if (d > BUF_SIZE)
+            {
+                // Too far in the future for our buffer window, just drop.
+                // ESP_LOGD(TAG, "Dropping frame %u too far in the future (playhead %u)",
+                //          (unsigned)frame_index, (unsigned)current_frame_);
+                return;
+            }
+
+            // 2) Find a free slot
+            for (uint16_t i = 0; i < BUF_SIZE; i++)
+            {
+                SequenceFrame &s = buffer_[i];
+                if (!s.valid)
+                {
+                    // ESP_LOGD(TAG, "Using free slot %u for frame %u", (unsigned)i, (unsigned)frame_index);
+                    s.valid = true;
+                    s.frame_index = frame_index;
+                    s.r = r;
+                    s.g = g;
+                    s.b = b;
+                    return;
+                }
+            }
+
+            // ESP_LOGD(TAG, "No free slot for frame %u: buffer full", (unsigned)frame_index);
+            // 3) No free slot: buffer full of other future frames.
+            // You can either drop this one or replace the farthest future frame.
+            // Simplest: drop.
+        }
+        void LightSyncComponent::apply_pixel_(uint8_t r, uint8_t g, uint8_t b)
+        {
+            this->current_r_ = r;
+            this->current_g_ = g;
+            this->current_b_ = b;
+            this->has_color_ = true;
+
+            ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
+                     (int)(r), (int)(g), (int)(b), (int)(r), (int)(g), (int)(b));
+            // hook this into your ESPHome light / raw PWM / whatever
+            // e.g. light->current_values = {r,g,b};
         }
 
     } // namespace light_sync

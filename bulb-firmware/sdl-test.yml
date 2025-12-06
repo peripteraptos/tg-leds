@@ -1,5 +1,5 @@
 esphome:
-  name: led-10
+  name: led-5
   friendly_name: sdl
 
   on_boot:
@@ -21,7 +21,10 @@ packages:
   common: !include common.yml
 
 logger:
-  level: VERY_VERBOSE
+  level: DEBUG
+  logs:
+    light_sync: DEBUG
+    light: INFO
 
 output:
   - platform: template
@@ -58,3 +61,6 @@ light:
       - light_sync:
           name: "Sync from Server"
           light_sync_id: ls
+# my_udp:
+#   id: my_udp0
+#   port: 4444
