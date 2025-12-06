@@ -3,6 +3,9 @@ packages:
   - brightsign
   - brs
   - sveltekit-app
+  - tauri/tauri-app
+  - python/frontend
+  - python
 
 publicHoistPattern:
   - "vue"
