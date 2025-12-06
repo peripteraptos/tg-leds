@@ -1,0 +1,213 @@
+<html>
+  <body>
+    <video width="100%" height="100%" autoplay loop id="video" hwz="z-index:-1">
+      <!---hwz="z-index:-1"-->
+      <source src="video.mp4" />
+    </video>
+    <canvas width="1920" height="1200" id="canvas"></canvas>
+    <style>
+      video {
+        position: fixed;
+        inset: 0;
+        object-fit: contain;
+      }
+      canvas {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      html,
+      body {
+        background-color: black;
+      }
+    </style>
+
+    <script>
+      let fs = require("fs");
+      let os = require("os");
+
+      let fps = 24;
+      let duration = null;
+      let total_frames = null;
+      let samplePath = "storage/sd/samples.json";
+      let devices = {};
+
+      let ip;
+
+      const getIpAddress = () => {
+        let address = os.networkInterfaces()["eth0"].filter((details) => {
+          if (details.family === "IPv4" && !details.internal) {
+            ip = details.address;
+          }
+        });
+        if (address != null && address.length > 0) {
+          ip = address[0].address;
+        }
+      };
+
+      getIpAddress();
+
+      fs.readFile(samplePath, "utf8", (err, data) => {
+        if (err) {
+          console.log("Error reading samples file:", err);
+          return;
+        }
+        devices = JSON.parse(data).map((samples, index) => ({
+          id: index + 1,
+          ip: null,
+          last_buffered_frame: 0,
+          samples,
+        }));
+        console.log("Loaded devices:", devices);
+      });
+
+      // let canvasWidth = 1920;
+      // let canvasHeight = 1200;
+
+      // let width = 2;
+      // let height = 2;
+
+      // let cols = canvasWidth / width;
+      // let rows = canvasHeight / height;
+      // let total = rows * cols;
+
+      // let alpha = 1;
+      // let n_per_square = 1 / alpha;
+
+      // let squares_per_run = 50000;
+
+      // let storage_path = "storage/sd/squares.txt";
+
+      // let squares = new Int8Array(total);
+      // fs.readFile(storage_path, "utf8", (err, data) => {
+      //   if (err) return;
+      //   let savedSquares = data.split(",").map(Number);
+      //   savedSquares.forEach((value, index) => {
+      //     squares[index] = value;
+      //     for (i = 0; i < value; i++) {
+      //       paintSquare(index);
+      //     }
+      //   });
+      // });
+
+      let videoPlayer = document.getElementById("video");
+
+      videoPlayer.addEventListener("loadedmetadata", (e) => {
+        console.log("video loadedmetadata", e);
+        duration = videoPlayer.duration;
+        total_frames = Math.floor(duration * fps);
+        console.log("Video duration:", duration);
+        console.log("Total frames:", total_frames);
+
+        console.log("Network interfaces:", os.networkInterfaces());
+        console.log("Local IP address:", ip);
+      });
+
+      //   videoPlayer.addEventListener("ended", () => {
+      //     videoPlayer.play();
+
+      //     console.log("video playing");
+      //   });
+
+      let bsSocketMessage = new BSDatagramSocket();
+      bsSocketMessage.BindLocalPort(1235);
+      bsSocketMessage.ondatagram = (e) => {
+        let txtDec = new TextDecoder("utf-8");
+        let txt = txtDec.decode(e.getBytes());
+        let json = JSON.parse(txt);
+        let sourceIp = e.remoteHost;
+        let sourcePort = e.remotePort;
+
+        console.log("Received " + txtDec.decode(e.getBytes()));
+        if (json.message?.toUpperCase() == "HELLO") {
+          let lightId = json.id;
+          let device = devices.find((d) => d.id == lightId);
+          if (device && !device.ip) {
+            device.ip = sourceIp;
+            device.last_buffered_frame = 0;
+            console.log(
+              "Registered device " + lightId + " with IP " + sourceIp
+            );
+          } else {
+            console.log("Unknown device ID " + lightId);
+          }
+        }
+      };
+
+      setInterval(() => {
+        let data = JSON.stringify({
+          message: "DISCOVER",
+          total_frames: total_frames,
+          ip,
+          fps,
+        });
+        bsSocketMessage.SendTo("255.255.255.255", 1234, data);
+        console.log("Sent DISCOVER:", data);
+      }, 4000);
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      setInterval(() => {
+        devices.forEach(async (device) => {
+          if (device.ip) {
+            let current_frame = Math.floor(videoPlayer.currentTime * fps);
+            let buffer_ahead = 10; // seconds
+            let target_frame = current_frame + buffer_ahead * fps;
+            let samples_to_send = [];
+
+            for (
+              let f = device.last_buffered_frame;
+              f < target_frame && f < total_frames;
+              f++
+            ) {
+              let { r, g, b } = device.samples[f % device.samples.length];
+              samples_to_send.push({ f, r, g, b });
+            }
+            if (samples_to_send.length > 0) {
+              samples_to_send.forEach(async (item) => {
+                let message = JSON.stringify({
+                  message: "SAMPLES",
+                  ...item,
+                });
+                bsSocketMessage.SendTo(device.ip, 1234, message);
+                device.last_buffered_frame = item.f;
+                await sleep(10); // slight delay to avoid flooding
+              });
+
+              if (device.last_buffered_frame >= total_frames) {
+                device.last_buffered_frame = 0;
+              }
+
+              console.log(
+                `Sent ${samples_to_send.length} samples to device ${device.id} (IP: ${device.ip}) up to frame ${target_frame}`
+              );
+            }
+          }
+        });
+      }, 100);
+
+      setInterval(() => {
+        devices.forEach(async (device) => {
+          if (device.ip) {
+            let current_frame = Math.floor(videoPlayer.currentTime * fps);
+            let time = videoPlayer.currentTime * 1000;
+
+            bsSocketMessage.SendTo(
+              device.ip,
+              1234,
+              JSON.stringify({
+                message: "SYNC",
+                frame: current_frame,
+                time,
+              })
+            );
+            await sleep(100);
+          }
+        });
+      }, 1000);
+    </script>
+  </body>
+</html>
