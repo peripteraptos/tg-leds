@@ -134,9 +134,9 @@ namespace esphome
                     if (this->server_addr_.empty())
                     {
 
+                        this->server_addr_ = obj["ip"].as<std::string>();
                         ESP_LOGI(TAG, "Set server address to %s",
                                  this->server_addr_.c_str());
-                        this->server_addr_ = obj["ip"].as<std::string>();
                         // this->parent_->add_address(this->server_addr_.c_str());
                     }
                     this->server_addr_ = obj["ip"].as<std::string>();
