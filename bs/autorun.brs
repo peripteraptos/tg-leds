@@ -6,9 +6,7 @@
 ' -------- CONFIG ------------------------------------------------
 sub setConfig()
     m.videoPath      = "SD:/loop.mp4"      ' video to loop
-    m.saveFile       = "SD:/squares.json"  ' persistence file
 end sub
-
 
 ' -------------------------- MAIN --------------------------------
 sub Main()
@@ -19,7 +17,6 @@ sub Main()
     setConfig()
 
     vm     = createobject("roVideoMode")
-    
     ' --- video player --------------------------------------------
     port   = createobject("roMessagePort")
     ' player = createobject("roVideoPlayer")
@@ -44,5 +41,7 @@ sub Main()
     ' --- event loop ----------------------------------------------
     while true
         ' noop
+        sleep(1000)
+
     end while
 end sub

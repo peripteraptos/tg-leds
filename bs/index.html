@@ -1,22 +1,15 @@
 <html>
   <body>
-    <video width="100%" height="100%" autoplay loop id="video" hwz="z-index:-1">
-      <!---hwz="z-index:-1"-->
+    <video width="100%" height="100%" id="video" hwz="on">
       <source src="video.mp4" />
     </video>
-    <canvas width="1920" height="1200" id="canvas"></canvas>
+
     <style>
       video {
         position: fixed;
-        inset: 0;
         object-fit: contain;
-      }
-      canvas {
-        position: fixed;
         inset: 0;
-        overflow: hidden;
       }
-
       html,
       body {
         background-color: black;
@@ -24,16 +17,41 @@
     </style>
 
     <script>
+      var sync = new BSSyncManager("domain1", "224.0.126.10", 1539);
       let fs = require("fs");
       let os = require("os");
 
       let fps = 24;
       let duration = null;
       let total_frames = null;
+      let current_frame = 0;
+      let current_frame_abs = 0;
+      let loop_count = 0;
       let samplePath = "storage/sd/samples.json";
-      let devices = {};
-
+      let devices = [];
       let ip;
+      let last_buffered_abs = 0;
+      let last_sync_time = 0;
+      let last_play_time = 0;
+
+      sync.onsyncevent = function (e) {
+        document
+          .getElementById("video")
+          .setSyncParams(e.domain, e.id, e.iso_timestamp);
+        document.getElementById("video").load();
+        document.getElementById("video").play();
+        last_play_time = new Date(e.iso_timestamp).getTime();
+        console.log(e.domain);
+        console.log(e.id);
+        console.log(e.iso_timestamp);
+      };
+
+      function restartLeader() {
+        // Synchronize the videos to start playing in 1000ms
+        sync.SetAsLeader(1);
+        sync.Synchronize("sync_event1", 1000);
+      }
+      // restartLeader();
 
       const getIpAddress = () => {
         let address = os.networkInterfaces()["eth0"].filter((details) => {
@@ -45,8 +63,12 @@
           ip = address[0].address;
         }
       };
-
       getIpAddress();
+      setInterval(() => {
+        if (!ip) {
+          getIpAddress();
+        }
+      }, 5000);
 
       fs.readFile(samplePath, "utf8", (err, data) => {
         if (err) {
@@ -56,40 +78,11 @@
         devices = JSON.parse(data).map((samples, index) => ({
           id: index + 1,
           ip: null,
-          last_buffered_frame: 0,
+          last_sync_time: null,
           samples,
         }));
         console.log("Loaded devices:", devices);
       });
-
-      // let canvasWidth = 1920;
-      // let canvasHeight = 1200;
-
-      // let width = 2;
-      // let height = 2;
-
-      // let cols = canvasWidth / width;
-      // let rows = canvasHeight / height;
-      // let total = rows * cols;
-
-      // let alpha = 1;
-      // let n_per_square = 1 / alpha;
-
-      // let squares_per_run = 50000;
-
-      // let storage_path = "storage/sd/squares.txt";
-
-      // let squares = new Int8Array(total);
-      // fs.readFile(storage_path, "utf8", (err, data) => {
-      //   if (err) return;
-      //   let savedSquares = data.split(",").map(Number);
-      //   savedSquares.forEach((value, index) => {
-      //     squares[index] = value;
-      //     for (i = 0; i < value; i++) {
-      //       paintSquare(index);
-      //     }
-      //   });
-      // });
 
       let videoPlayer = document.getElementById("video");
 
@@ -99,16 +92,14 @@
         total_frames = Math.floor(duration * fps);
         console.log("Video duration:", duration);
         console.log("Total frames:", total_frames);
-
         console.log("Network interfaces:", os.networkInterfaces());
         console.log("Local IP address:", ip);
       });
 
-      //   videoPlayer.addEventListener("ended", () => {
-      //     videoPlayer.play();
-
-      //     console.log("video playing");
-      //   });
+      videoPlayer.addEventListener("ended", (e) => {
+        console.log("video ended", e);
+        restartLeader();
+      });
 
       let bsSocketMessage = new BSDatagramSocket();
       bsSocketMessage.BindLocalPort(1235);
@@ -119,13 +110,12 @@
         let sourceIp = e.remoteHost;
         let sourcePort = e.remotePort;
 
-        console.log("Received " + txtDec.decode(e.getBytes()));
+        // console.log("Received " + txtDec.decode(e.getBytes()));
         if (json.message?.toUpperCase() == "HELLO") {
           let lightId = json.id;
           let device = devices.find((d) => d.id == lightId);
           if (device) {
             device.ip = sourceIp;
-            device.last_buffered_frame = json.last_buffered_frame || 0;
           } else {
             console.log("Unknown device ID " + lightId);
           }
@@ -133,87 +123,151 @@
       };
 
       setInterval(() => {
-        let data = JSON.stringify({
-          message: "DISCOVER",
-          total_frames: total_frames,
-          ip,
-          fps,
-        });
-        bsSocketMessage.SendTo("255.255.255.255", 1234, data);
-        console.log("Sent DISCOVER:", data);
-      }, 4000);
-
-      function sleep(ms) {
-        return new Promise((resolve) => setTimeout(resolve, ms));
-      }
-
-      setInterval(() => {
-        devices.forEach(async (device) => {
-          if (device.ip) {
-            let current_frame = Math.floor(videoPlayer.currentTime * fps);
-            let buffer_ahead = 10; // seconds
-            let target_frame =
-              (current_frame + buffer_ahead * fps) % total_frames;
-            let is_wrapping = target_frame < current_frame;
-            let n_frames = is_wrapping
-              ? total_frames - current_frame + target_frame
-              : target_frame - current_frame;
-            let samples_to_send = [];
-
-            if (device.last_buffered_frame >= total_frames - 1) {
-              device.last_buffered_frame = 0;
-            }
-
-            if (is_wrapping && device.last_buffered_frame < current_frame) {
-              device.last_buffered_frame = current_frame;
-            }
-
-            for (
-              let f = device.last_buffered_frame + 1;
-              f != (target_frame + 1) % total_frames;
-              f = (f + 1) % total_frames
-            ) {
-              let { r, g, b } = device.samples[f % device.samples.length];
-              samples_to_send.push({ f, r, g, b });
-            }
-            if (samples_to_send.length > 0) {
-              samples_to_send.forEach(async (item) => {
-                let message = JSON.stringify({
-                  message: "SAMPLES",
-                  ...item,
-                });
-                bsSocketMessage.SendTo(device.ip, 1234, message);
-                device.last_buffered_frame = item.f;
-                await sleep(10); // slight delay to avoid flooding
-              });
-
-              console.log(
-                `Sent ${samples_to_send.length} samples to device ${device.id} (IP: ${device.ip}) up to frame ${target_frame}`
-              );
-            }
-          }
-        });
-      }, 100);
-
-      setInterval(() => {
-        // devices.forEach(async (device) => {
-        // if (device.ip) {
-        let current_frame = Math.floor(videoPlayer.currentTime * fps);
-        let time = videoPlayer.currentTime * 1000;
-
         bsSocketMessage.SendTo(
           "255.255.255.255",
           1234,
           JSON.stringify({
-            message: "SYNC",
-            frame: current_frame,
-            time,
+            message: "DISCOVER",
+            total_frames: total_frames,
+            ip,
+            fps,
           })
         );
-        // await sleep(100);
-        // }
-        // });
-      }, 1000);
+      }, 5000);
+
+      let animation_frame = 0;
+
+      function updateCurrentFrame() {
+        let time = Date.now();
+        if (time < last_play_time) {
+          return 0; // not started yet
+        }
+
+        let elapsed = time - last_play_time;
+        let expected_frame = Math.floor((elapsed / 1000) * fps);
+
+        current_frame_abs = expected_frame;
+        current_frame = expected_frame % total_frames;
+      }
+
+      async function bufferDevices() {
+        let time = Date.now();
+        let buffer_time = 5; // seconds
+        let target_abs_frame = current_frame_abs + buffer_time * fps;
+        // while (last_buffered_abs < target_abs_frame) {
+
+        for (let device of devices) {
+          if (device.ip) {
+            if (device.last_sync_time < time - 2000) {
+              updateCurrentFrame();
+              bsSocketMessage.SendTo(
+                device.ip,
+                1234,
+                JSON.stringify({
+                  message: "SYNC",
+                  frame: current_frame,
+                })
+              );
+              device.last_sync_time = time;
+            }
+
+            for (let f = last_buffered_abs + 1; f <= target_abs_frame; f++) {
+              let frame_index = f % total_frames;
+              let { r, g, b } =
+                device.samples[frame_index % device.samples.length];
+              let message = JSON.stringify({
+                message: "SAMPLES",
+                f: frame_index,
+                r,
+                g,
+                b,
+              });
+              bsSocketMessage.SendTo(device.ip, 1234, message);
+            }
+            // await sleep(5); // slight delay to avoid flooding
+          }
+        }
+        last_buffered_abs = target_abs_frame;
+        // await new Promise((r) => setTimeout(r, 100));
+      }
+
+      restartLeader();
+      async function mainLoop() {
+        while (true) {
+          await new Promise((r) => requestAnimationFrame(r));
+          await bufferDevices();
+        }
+      }
+      function startMainLoop() {
+        mainLoop().catch((err) => {
+          console.error("Error in mainLoop:", err);
+          setTimeout(startMainLoop, 1000); // Restart after 1 second
+        });
+      }
+      startMainLoop();
+      // function sleep(ms) {
+      //   return new Promise((resolve) => setTimeout(resolve, ms));
+      // }
+
+      // setInterval(() => {
+      //   devices.forEach(async (device) => {
+      //     if (device.ip) {
+      //       let current_frame = Math.floor(videoPlayer.currentTime * fps);
+      //       let buffer_ahead = 10; // seconds
+      //       let target_frame =
+      //         (current_frame + buffer_ahead * fps) % total_frames;
+      //       let is_wrapping = target_frame < current_frame;
+      //       let n_frames = is_wrapping
+      //         ? total_frames - current_frame + target_frame
+      //         : target_frame - current_frame;
+      //       let samples_to_send = [];
+
+      //       if (device.last_buffered_frame >= total_frames - 1) {
+      //         device.last_buffered_frame = 0;
+      //       }
+
+      //       if (is_wrapping && device.last_buffered_frame < current_frame) {
+      //         device.last_buffered_frame = current_frame;
+      //       }
+
+      //       for (
+      //         let f = device.last_buffered_frame + 1;
+      //         f != (target_frame + 1) % total_frames;
+      //         f = (f + 1) % total_frames
+      //       ) {
+      //         let { r, g, b } = device.samples[f % device.samples.length];
+      //         samples_to_send.push({ f, r, g, b });
+      //       }
+      //       if (samples_to_send.length > 0) {
+      //         samples_to_send.forEach(async (item) => {
+      //           let message = JSON.stringify({
+      //             message: "SAMPLES",
+      //             ...item,
+      //           });
+      //           bsSocketMessage.SendTo(device.ip, 1234, message);
+      //           device.last_buffered_frame = item.f;
+      //           await sleep(10); // slight delay to avoid flooding
+      //         });
+
+      //         // console.log(
+      //         //   `Sent ${samples_to_send.length} samples to device ${device.id} (IP: ${device.ip}) up to frame ${target_frame}`
+      //         // );
+      //       }
+      //     }
+      //   });
+      // }, 100);
+
+      // setInterval(() => {
+      //   bsSocketMessage.SendTo(
+      //     "255.255.255.255",
+      //     1234,
+      //     JSON.stringify({
+      //       message: "SYNC",
+      //       frame: current_frame,
+      //       time,
+      //     })
+      //   );
+      // }, 1000);
     </script>
   </body>
 </html>
