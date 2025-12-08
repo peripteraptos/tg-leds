@@ -26,14 +26,15 @@ namespace esphome
 
         void LightSyncEffect::apply()
         {
-            if (this->state_ == nullptr || this->light_sync_ == nullptr)
-                return;
-
             uint8_t r, g, b;
-            if (!this->light_sync_->get_current_rgb(r, g, b))
+            if (
+                this->state_ == nullptr ||
+                this->light_sync_ == nullptr ||
+                !this->light_sync_->get_current_rgb(r, g, b))
             {
-                // no valid color yet
-                return;
+                r = 0;
+                g = 0;
+                b = 0;
             }
 
             this->last_r_ = r;
