@@ -1,5 +1,5 @@
 esphome:
-  name: led-5
+  name: sdl
   friendly_name: sdl
 
   on_boot:

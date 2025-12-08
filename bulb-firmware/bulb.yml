@@ -3,7 +3,8 @@ esphome:
   platformio_options:
     build_flags:
       #   - -D LWIP_LOOPIF_MULTICAST=1
-      - -D LWIP_IGMP=1
+      # - -D LWIP_IGMP=1
+      - -DLWIP_DHCP_DOES_ACD_CHECK=0
 
   on_boot:
     then:
@@ -27,13 +28,15 @@ ota:
   - platform: esphome
     password: ""
 
-api:
-  password: ""
+# api:
+#   password: ""
 
 wifi:
   ssid: "TP-Link_69E4"
   password: "79970341"
   power_save_mode: none
+  fast_connect: true
+  reboot_timeout: 0s
   # fast_connect: True
   #  reboot_timeout: "5min"
 
