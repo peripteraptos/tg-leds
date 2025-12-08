@@ -207,14 +207,24 @@ namespace esphome
 
         void LightSyncComponent::update_playback_()
         {
-            uint32_t now = millis();
-            if ((now - last_step_ms_) < frame_interval_ms_)
+            uint32_t now = micros();
+            if (last_step_us_ == 0)
+            {
+                last_step_us_ = now;
+                return;
+            }
+
+            if ((now - last_step_us_) < frame_interval_us_)
                 return;
 
-            last_step_ms_ = now;
+            // Update FPS estimate
+            uint32_t elapsed = now - last_step_us_;
+            uint32_t frame_advance = 1;
 
-            // advance playhead
-            current_frame_ = (uint16_t)((current_frame_ + 1) % total_frames_);
+            fps_ = 1000000.0f / static_cast<float>(elapsed);
+            frame_advance = static_cast<uint32_t>(elapsed / frame_interval_us_);
+            last_step_us_ = now;
+            current_frame_ = current_frame_ + frame_advance % total_frames_;
 
             // Find the slot for current_frame_ and clean up old ones
             SequenceFrame *slot_for_current = nullptr;
@@ -274,16 +284,16 @@ namespace esphome
             {
                 // This means it's behind the current_frame_ (old frame from previous cycle).
                 // We don't need it.
-                // ESP_LOGD(TAG, "Dropping old frame %u (playhead %u)",
-                //          (unsigned)frame_index, (unsigned)current_frame_);
+                ESP_LOGD(TAG, "Dropping old frame %u (playhead %u)",
+                         (unsigned)frame_index, (unsigned)current_frame_);
                 return;
             }
 
             if (d > BUF_SIZE)
             {
                 // Too far in the future for our buffer window, just drop.
-                // ESP_LOGD(TAG, "Dropping frame %u too far in the future (playhead %u)",
-                //          (unsigned)frame_index, (unsigned)current_frame_);
+                ESP_LOGD(TAG, "Dropping frame %u too far in the future (playhead %u)",
+                         (unsigned)frame_index, (unsigned)current_frame_);
                 return;
             }
 
@@ -315,8 +325,8 @@ namespace esphome
             this->current_b_ = b;
             this->has_color_ = true;
 
-            ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d)",
-                     (int)(r), (int)(g), (int)(b), (int)(r), (int)(g), (int)(b));
+            ESP_LOGD(TAG, "\033[48;2;%d;%d;%dm             \033[0m  (R=%d G=%d B=%d fps=%.02f frame=%u)",
+                     (int)(r), (int)(g), (int)(b), (int)(r), (int)(g), (int)(b), this->fps_, this->current_frame_);
             // hook this into your ESPHome light / raw PWM / whatever
             // e.g. light->current_values = {r,g,b};
         }

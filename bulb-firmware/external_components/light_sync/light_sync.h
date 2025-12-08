@@ -34,8 +34,8 @@ namespace esphome
 
             bool get_current_rgb(uint8_t &r, uint8_t &g, uint8_t &b) const
             {
-                if (!this->has_color_)
-                    return false;
+                // if (!this->has_color_)
+                //     return false;
                 r = this->current_r_;
                 g = this->current_g_;
                 b = this->current_b_;
@@ -75,8 +75,8 @@ namespace esphome
             SequenceFrame buffer_[BUF_SIZE];
             uint32_t playhead_id_{0};
             uint32_t bufferhead_id_{0};
-            uint32_t last_step_ms_{0};
-            uint32_t frame_interval_ms_{42}; // 25 fps, adjust to your video
+            uint32_t last_step_us_{0};
+            uint32_t frame_interval_us_{41666}; // 24 fps, adjust to your video
             uint32_t total_frames_{0};
 
             void apply_pixel_(uint8_t r, uint8_t g, uint8_t b);
@@ -89,6 +89,13 @@ namespace esphome
             uint8_t current_r_{0};
             uint8_t current_g_{0};
             uint8_t current_b_{0};
+            float fps_{0.0f};
+
+            void on_shutdown() override
+            {
+                if (this->sock_)
+                    this->sock_->close();
+            }
         };
 
         // forward distance when moving from `from` to `to` along the ring
