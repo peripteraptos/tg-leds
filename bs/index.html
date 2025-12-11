@@ -152,7 +152,7 @@
 
       async function bufferDevices() {
         let time = Date.now();
-        let buffer_time = 5; // seconds
+        let buffer_time = 8; // seconds
         let target_abs_frame = current_frame_abs + buffer_time * fps;
         // while (last_buffered_abs < target_abs_frame) {
 
@@ -194,7 +194,7 @@
       restartLeader();
       async function mainLoop() {
         while (true) {
-          await new Promise((r) => requestAnimationFrame(r));
+          await new Promise((r) => requestIdleCallback(r));
           await bufferDevices();
         }
       }
