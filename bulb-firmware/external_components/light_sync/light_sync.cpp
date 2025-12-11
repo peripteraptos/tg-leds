@@ -262,7 +262,7 @@ namespace esphome
             }
             else
             {
-                // ESP_LOGD(TAG, "No data for current frame %u", (unsigned)current_frame_);
+                ESP_LOGD(TAG, "No data for current frame %u", (unsigned)current_frame_);
                 // No new frame for this index → keep old color, or fade, etc.
             }
         }
