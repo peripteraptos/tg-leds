@@ -11,3 +11,4 @@ convert-esphome
 python/venv
 node_modules
 venv
+.DS_Store
