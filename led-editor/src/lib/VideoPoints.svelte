@@ -8,6 +8,7 @@
     r: number;
     g: number;
     b: number;
+    f?: number;
   }
 
   interface Point {
@@ -88,7 +89,10 @@
   let currentTime = $state(0);
   let isPlaying = $state(false);
   let isCapturing = $state(false);
-  let captureData: Record<string, ({ time: number } & Color)[]> = $state({});
+  let captureData: Record<string, Color[]> = {};
+  let lastCapturedFrame = $state(0);
+  let lastSkippedFrameTime = 0;
+  let lastSpeedupTime = 0;
 
   onMount(() => {
     if (!canvasEl) return;
@@ -112,11 +116,13 @@
       console.error("Failed to parse stored points", e);
     }
 
+    saveConfig();
+
     const handleResize = () => {
       if (!videoEl || !canvasEl) return;
       const rect = videoEl.getBoundingClientRect();
-      canvasEl.width = rect.width;
-      canvasEl.height = rect.height;
+      canvasEl.width = rect.width / 2;
+      canvasEl.height = rect.height / 2;
     };
 
     handleResize();
@@ -147,14 +153,12 @@
       videoEl?.removeEventListener("pause", onPause);
     };
   });
-
-  //   persist points whenever they change
-  $effect(() => {
+  function saveConfig() {
     loaded && localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-  });
+  }
 
   function renderFrame() {
-    if (!ctx || !canvasEl || !videoEl) return;
+    if (!ctx || !canvasEl || !videoEl || isCapturing) return;
 
     currentTime = videoEl.currentTime;
 
@@ -177,55 +181,6 @@
           ...p,
           color,
         });
-        if (isCapturing) {
-          const lightName = "led-" + (index + 1);
-
-          // store color data
-          if (!captureData[lightName]) {
-            captureData[lightName] = [];
-          }
-          // console.log(
-          //   `Capture point ${index} at time ${videoEl.currentTime.toFixed(
-          //     2
-          //   )}: rgb(${p.color.r}, ${p.color.g}, ${p.color.b})`
-          // );
-          if (
-            captureData[lightName].find(
-              (d) => d.time === Math.round(videoEl!.currentTime * 1000)
-            )
-          ) {
-            // already have data for this time
-            console.log(
-              `Skipping duplicate sample for ${lightName} at time ${Math.round(
-                videoEl.currentTime * 1000
-              )} ms`
-            );
-            continue;
-          }
-
-          if (captureData[lightName] && captureData[lightName].length > 0) {
-            const lastEntry =
-              captureData[lightName][captureData[lightName].length - 1];
-            if (
-              lastEntry &&
-              lastEntry.r == color.r &&
-              lastEntry.g == color.g &&
-              lastEntry.b == color.b
-            ) {
-              // skip samples that are too close in time
-              // console.log(
-              //   `Skipping similar sample for ${lightName} at time ${Math.round(
-              //     videoEl.currentTime * 1000
-              //   )} ms`
-              // );
-              continue;
-            }
-          }
-          captureData[lightName].push({
-            time: Math.round(videoEl.currentTime * 1000),
-            ...color,
-          });
-        }
       }
       config.points = updated;
 
@@ -250,73 +205,150 @@
     animationFrameId = requestAnimationFrame(renderFrame);
   }
 
+  function captureFrame(now: number, metadata: VideoFrameCallbackMetadata) {
+    if (!ctx || !canvasEl || !videoEl) return;
+
+    currentTime = metadata.mediaTime;
+
+    let frameDiff = metadata.presentedFrames - lastCapturedFrame;
+    if (frameDiff > 1) {
+      let oldRate = videoEl.playbackRate;
+      videoEl.playbackRate = Math.max(
+        0.5,
+        videoEl.playbackRate * 0.9
+      ); /* slow down on skips */
+      lastSkippedFrameTime = now;
+
+      console.warn(
+        "Skipped frames detected, last:",
+        lastCapturedFrame,
+        "now:",
+        metadata.presentedFrames,
+        "rate:",
+        videoEl.playbackRate,
+        "oldRate:",
+        oldRate
+      );
+      for (let i = 0; i < frameDiff - 1; i++) {
+        console.log(
+          "Filling skipped frame with data from previous frame:",
+          lastCapturedFrame + 1 + i,
+          "diff:",
+          frameDiff
+        );
+        for (const [index, p] of config.points.entries()) {
+          let ledName = "led-" + (index + 1);
+          let data = captureData[ledName];
+          if (!data) {
+            captureData[ledName] = [
+              { f: lastCapturedFrame + 1 + i, r: 0, g: 0, b: 0 },
+            ];
+          } else {
+            let lastColor = data[data.length - 1];
+            captureData[ledName].push({
+              f: lastCapturedFrame + 1 + i,
+              r: lastColor.r,
+              g: lastColor.g,
+              b: lastColor.b,
+            });
+          }
+        }
+      }
+    } else if (metadata.presentedFrames === lastCapturedFrame + 1) {
+      // all good, can speed up
+      if (now - lastSkippedFrameTime > 4000 && now - lastSpeedupTime > 2000) {
+        let oldRate = videoEl.playbackRate;
+        // recently had skips, be cautious
+        videoEl.playbackRate = Math.min(
+          2.0,
+          videoEl.playbackRate * 1.05
+        ); /* speed up if no skips */
+        console.log(
+          "Speeding up cautiously to",
+          videoEl.playbackRate,
+          "from",
+          oldRate
+        );
+        lastSpeedupTime = now;
+      }
+    } else {
+      console.log("Frame captured:", metadata.presentedFrames);
+    }
+
+    lastCapturedFrame = metadata.presentedFrames;
+    const width = canvasEl.width;
+    const height = canvasEl.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(videoEl, 0, 0, width, height);
+
+    for (const [index, p] of config.points.entries()) {
+      const color = sampleAverageColor(
+        denormalize(p.x, width),
+        denormalize(p.y, height),
+        denormalize(config.pointRadius, width)
+      );
+
+      if (isCapturing) {
+        const lightName = "led-" + (index + 1);
+
+        // store color data
+        if (!captureData[lightName]) {
+          captureData[lightName] = [];
+        }
+
+        captureData[lightName].push({
+          f: metadata.presentedFrames,
+          ...color,
+        });
+      }
+    }
+
+    if (isCapturing) {
+      animationFrameId = videoEl?.requestVideoFrameCallback(captureFrame) ?? 0;
+    }
+  }
+
   // playback video from beginning to end at high speed and capture colors
   async function playbackAndCapture() {
     if (!videoEl) return;
-    videoEl.currentTime = 0;
-    videoEl.playbackRate = 20.0;
     videoEl.loop = false;
     captureData = {};
+    lastCapturedFrame = 0;
+    lastSkippedFrameTime = 0;
+    lastSpeedupTime = 0;
     return await new Promise<void>((resolve, reject) => {
       videoEl?.pause();
-
       videoEl?.addEventListener(
-        "seeked",
+        "ended",
         () => {
-          setTimeout(() => {
-            videoEl?.addEventListener(
-              "ended",
-              () => {
-                resolve();
-                isCapturing = false;
-                if (videoEl) {
-                  videoEl.playbackRate = 1.0;
-                  videoEl.loop = true;
-                }
-              },
-              { once: true }
-            );
-
-            videoEl?.play().then(() => {
-              isCapturing = true;
-              console.log("Video playback started for capture");
-            });
-          }, 100);
+          resolve();
+          isCapturing = false;
+          if (videoEl) {
+            videoEl.loop = true;
+          }
+          animationFrameId = requestAnimationFrame(renderFrame);
         },
         { once: true }
       );
+      // videoEl?.addEventListener(
+      //   "seeked",
+      //   () => {
+      //     if (videoEl!.currentTime >= videoEl!.duration) return;
+      //   },
+      //   { once: true }
+      // );
+      videoEl!.playbackRate = 1.0; // speed up playback
+      videoEl!.currentTime = 0;
+      animationFrameId = videoEl?.requestVideoFrameCallback(captureFrame) ?? 0;
+      animationFrameId = 0;
+      isCapturing = true;
+      videoEl!.play();
     });
-
-    videoEl!.currentTime = 0;
   }
 
   // download captured data as JSON
   function downloadCaptureData() {
-    const processed = Object.fromEntries(
-      Object.entries(captureData).map(([key, samples]) => {
-        // sort samples by time
-        const sorted = samples.slice().sort((a, b) => a.time - b.time);
-        const mapped = sorted.map((s, index, arr) => {
-          // transform to delta time
-          if (index === 0) {
-            return s;
-          } else {
-            return {
-              ...s,
-              time: s.time - arr[index - 1].time,
-            };
-          }
-        });
-        const filtered = mapped.filter((s, index, arr) => {
-          // remove samples without changes
-          if (index === 0) return true;
-          const prev = arr[index - 1];
-          return s.r !== prev.r || s.g !== prev.g || s.b !== prev.b;
-        });
-        return [key, filtered];
-      })
-    );
-    const dataStr = JSON.stringify(processed, null, 2);
+    const dataStr = JSON.stringify(captureData, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -515,6 +547,7 @@
       dragIndex = null;
       videoEl?.releasePointerCapture(event.pointerId);
     }
+    saveConfig();
   }
 
   function canvasMouseLeave(event: MouseEvent) {
@@ -522,6 +555,7 @@
       isDragging = false;
       dragIndex = null;
     }
+    saveConfig();
   }
 
   // --- buttons: reset / export / import ---
@@ -529,6 +563,7 @@
   function resetConfig() {
     config = structuredClone(defaultConfig);
     localStorage.removeItem(STORAGE_KEY);
+    saveConfig();
   }
 
   function exportPoints() {
@@ -566,6 +601,7 @@
           y: p.y,
           color: { r: 0, g: 0, b: 0 },
         }));
+        saveConfig();
       } catch (err) {
         console.error("Failed to import points JSON", err);
         alert("Failed to import points JSON.");
@@ -600,7 +636,7 @@
   }
 
   function onCanPlay() {
-    if (videoEl) {
+    if (videoEl && isCapturing === false) {
       console.log("video loaded, duration:", videoEl.duration);
       duration = videoEl.duration;
     }
@@ -645,7 +681,7 @@
         </video>
 
         <canvas
-          class="absolute inset-0 -z-10 pointer-events-none"
+          class="absolute inset-0 -z-10 pointer-events-none hidden"
           bind:this={canvasEl}
         ></canvas>
 
@@ -671,31 +707,35 @@
       </div>
     </div>
     {#if videoEl}<div id="controls" class="flex items-center gap-2 mt-2 grow">
-        {#if !isPlaying}<Button
-            class="w-20"
-            onclick={() => {
-              videoEl?.play();
-            }}>Play</Button
-          >{:else}
-          <Button
-            class="w-20"
-            onclick={() => {
-              videoEl?.pause();
-            }}>Pause</Button
-          >{/if}
+        {#if !isCapturing}
+          {#if !isPlaying}<Button
+              class="w-20"
+              onclick={() => {
+                videoEl?.play();
+              }}>Play</Button
+            >{:else}
+            <Button
+              class="w-20"
+              onclick={() => {
+                videoEl?.pause();
+              }}>Pause</Button
+            >{/if}{/if}
         <div class="bg-neutral-700 rounded p-1 w-full flex items-center">
-          <input
-            type="range"
-            class="w-full"
-            value={currentTime}
-            max={duration}
-            oninput={(e) => {
-              const val = Number((e.target as HTMLInputElement).value);
-              if (videoEl) {
-                videoEl.currentTime = val;
-              }
-            }}
-          />
+          {#if !isCapturing}
+            <input
+              type="range"
+              class="w-full"
+              value={currentTime}
+              max={duration}
+              oninput={(e) => {
+                const val = Number((e.target as HTMLInputElement).value);
+                if (videoEl) {
+                  videoEl.currentTime = val;
+                }
+              }}
+            />{:else}
+            <progress class="w-full" value={currentTime} max={duration}
+            ></progress>{/if}
         </div>
       </div>{/if}
   </div>
